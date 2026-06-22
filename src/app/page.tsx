@@ -1,109 +1,28 @@
-const models = [
-  {
-    name: "LLaMA 3",
-    org: "Meta",
-    params: "8B / 70B / 405B",
-    arch: "Dense Transformer (decoder-only)",
-    highlights: [
-      "GQA (grouped-query attention)",
-      "RoPE positional embeddings",
-      "SwiGLU FFN activation",
-      "RMSNorm pre-normalization",
-    ],
-  },
-  {
-    name: "Mistral / Mixtral",
-    org: "Mistral AI",
-    params: "7B / 8x7B / 8x22B",
-    arch: "Sparse MoE Transformer",
-    highlights: [
-      "Sliding-window attention (Mistral 7B)",
-      "Top-2 expert routing (Mixtral)",
-      "Shared embedding & output head",
-      "RoPE + SwiGLU + RMSNorm",
-    ],
-  },
-  {
-    name: "Qwen 2.5",
-    org: "Alibaba",
-    params: "0.5B – 72B",
-    arch: "Dense Transformer (decoder-only)",
-    highlights: [
-      "GQA with YaRN extended context",
-      "SwiGLU FFN",
-      "Tied embeddings on smaller variants",
-      "RMSNorm pre-normalization",
-    ],
-  },
-  {
-    name: "DeepSeek-V3",
-    org: "DeepSeek",
-    params: "671B (37B active)",
-    arch: "MoE Transformer + MLA",
-    highlights: [
-      "Multi-head Latent Attention (MLA)",
-      "DeepSeekMoE with shared experts",
-      "Auxiliary-loss-free load balancing",
-      "FP8 mixed-precision training",
-    ],
-  },
-  {
-    name: "Gemma 2",
-    org: "Google",
-    params: "2B / 9B / 27B",
-    arch: "Dense Transformer (decoder-only)",
-    highlights: [
-      "Alternating local / global attention",
-      "Logit soft-capping",
-      "GeGLU FFN activation",
-      "Knowledge distillation training",
-    ],
-  },
-  {
-    name: "Phi-4",
-    org: "Microsoft",
-    params: "14B",
-    arch: "Dense Transformer (decoder-only)",
-    highlights: [
-      "Synthetic-data-heavy training mix",
-      "Full attention (no GQA)",
-      "RoPE + LayerNorm",
-      "Pivotal token search for DPO",
-    ],
-  },
-];
+import Link from "next/link";
+import { models } from "@/data/models";
 
-function ModelCard({
-  model,
-}: {
-  model: (typeof models)[number];
-}) {
+function ModelCard({ model }: { model: (typeof models)[number] }) {
+  const variantNames = model.variants.map((v) => v.name).join(" / ");
   return (
-    <div className="group rounded-lg border border-border bg-surface p-6 transition-colors hover:border-accent/40">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h3 className="font-sans text-lg font-semibold text-foreground">
-            {model.name}
-          </h3>
-          <p className="text-sm text-muted">{model.org}</p>
+    <Link href={`/models/${model.slug}`}>
+      <div className="group rounded-lg border border-border bg-surface p-6 transition-colors hover:border-accent/40 h-full">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="font-sans text-lg font-semibold text-foreground">
+              {model.name}
+            </h3>
+            <p className="text-sm text-muted">{model.org}</p>
+          </div>
+          <span className="shrink-0 rounded-full border border-border bg-background px-3 py-1 font-mono text-xs text-accent">
+            {variantNames}
+          </span>
         </div>
-        <span className="shrink-0 rounded-full border border-border bg-background px-3 py-1 font-mono text-xs text-accent">
-          {model.params}
-        </span>
+        <p className="mb-4 text-sm text-muted line-clamp-2">{model.description}</p>
+        <p className="text-xs text-accent/70 group-hover:text-accent transition-colors">
+          View full architecture →
+        </p>
       </div>
-      <p className="mb-4 font-mono text-sm text-muted">{model.arch}</p>
-      <ul className="space-y-1.5">
-        {model.highlights.map((h) => (
-          <li
-            key={h}
-            className="flex items-start gap-2 text-sm text-foreground/80"
-          >
-            <span className="mt-1.5 block h-1.5 w-1.5 shrink-0 rounded-full bg-accent/60" />
-            {h}
-          </li>
-        ))}
-      </ul>
-    </div>
+    </Link>
   );
 }
 
@@ -177,9 +96,7 @@ export default function Home() {
                 <h3 className="font-mono text-sm font-semibold text-accent">
                   {item.title}
                 </h3>
-                <p className="text-sm leading-relaxed text-muted">
-                  {item.desc}
-                </p>
+                <p className="text-sm leading-relaxed text-muted">{item.desc}</p>
               </div>
             ))}
           </div>
@@ -194,13 +111,9 @@ export default function Home() {
           </h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {models.map((m) => (
-              <ModelCard key={m.name} model={m} />
+              <ModelCard key={m.slug} model={m} />
             ))}
           </div>
-          <p className="mt-8 text-center text-sm text-muted">
-            Detailed architecture pages coming soon. Each model will get a
-            full breakdown with code and diagrams.
-          </p>
         </div>
       </section>
 
