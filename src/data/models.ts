@@ -56,11 +56,17 @@ export interface ModelVariant {
   config: ModelConfig;
 }
 
+export interface ModelLink {
+  label: string;
+  url: string;
+}
+
 export interface ModelFamily {
   slug: string;
   name: string;
   org: string;
   description: string;
+  links?: ModelLink[];
   variants: ModelVariant[];
 }
 
@@ -71,6 +77,11 @@ export const models: ModelFamily[] = [
     org: "Meta",
     description:
       "Dense decoder-only transformer with GQA, RoPE, SwiGLU, and RMSNorm pre-normalization.",
+    links: [
+      { label: "Paper", url: "https://arxiv.org/abs/2407.21783" },
+      { label: "HuggingFace", url: "https://huggingface.co/meta-llama" },
+      { label: "GitHub", url: "https://github.com/meta-llama/llama3" },
+    ],
     variants: [
       {
         id: "8b",
@@ -137,6 +148,10 @@ export const models: ModelFamily[] = [
     org: "Mistral AI",
     description:
       "Sparse MoE transformer with top-2 expert routing, sliding-window attention (Mistral 7B), and shared GQA design.",
+    links: [
+      { label: "Paper", url: "https://arxiv.org/abs/2401.04088" },
+      { label: "HuggingFace", url: "https://huggingface.co/mistralai/Mixtral-8x7B-v0.1" },
+    ],
     variants: [
       {
         id: "7b",
@@ -219,6 +234,12 @@ export const models: ModelFamily[] = [
     org: "Alibaba",
     description:
       "Dense decoder-only transformer with GQA, YaRN-extended RoPE for long context, and SwiGLU activation.",
+    links: [
+      { label: "Paper", url: "https://arxiv.org/abs/2412.15115" },
+      { label: "HuggingFace", url: "https://huggingface.co/Qwen/Qwen2.5-72B" },
+      { label: "GitHub", url: "https://github.com/QwenLM/Qwen2.5" },
+      { label: "Blog", url: "https://qwenlm.github.io/blog/qwen2.5/" },
+    ],
     variants: [
       {
         id: "7b",
@@ -266,6 +287,11 @@ export const models: ModelFamily[] = [
     org: "DeepSeek",
     description:
       "MoE transformer with Multi-head Latent Attention (MLA) for KV compression, 256 routed experts with auxiliary-loss-free load balancing, and FP8 training.",
+    links: [
+      { label: "Paper", url: "https://arxiv.org/abs/2412.19437" },
+      { label: "HuggingFace", url: "https://huggingface.co/deepseek-ai/DeepSeek-V3" },
+      { label: "GitHub", url: "https://github.com/deepseek-ai/DeepSeek-V3" },
+    ],
     variants: [
       {
         id: "671b",
@@ -309,6 +335,10 @@ export const models: ModelFamily[] = [
     org: "Google",
     description:
       "Dense decoder-only transformer with alternating local/global attention, logit soft-capping, GeGLU activation, and knowledge distillation training.",
+    links: [
+      { label: "Paper", url: "https://arxiv.org/abs/2408.00118" },
+      { label: "HuggingFace", url: "https://huggingface.co/google/gemma-2-27b" },
+    ],
     variants: [
       {
         id: "9b",
@@ -356,6 +386,10 @@ export const models: ModelFamily[] = [
     org: "Microsoft",
     description:
       "Dense decoder-only transformer trained on a synthetic-data-heavy mix with pivotal token search for DPO alignment.",
+    links: [
+      { label: "Paper", url: "https://arxiv.org/abs/2412.08905" },
+      { label: "HuggingFace", url: "https://huggingface.co/microsoft/phi-4" },
+    ],
     variants: [
       {
         id: "14b",
@@ -384,6 +418,10 @@ export const models: ModelFamily[] = [
     org: "Meta",
     description:
       "Meta's first MoE architecture with natively multimodal early fusion. Scout uses full MoE across all layers; Maverick alternates dense and MoE layers with 128 experts.",
+    links: [
+      { label: "HuggingFace", url: "https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct" },
+      { label: "Blog", url: "https://ai.meta.com/blog/llama-4-multimodal-intelligence/" },
+    ],
     variants: [
       {
         id: "scout",
@@ -448,6 +486,11 @@ export const models: ModelFamily[] = [
     org: "Alibaba",
     description:
       "Third-generation Qwen series with dense and MoE variants. Features thinking/non-thinking mode switching, YaRN-extended RoPE, and 128-expert sparse routing in the MoE variant.",
+    links: [
+      { label: "HuggingFace", url: "https://huggingface.co/Qwen/Qwen3-235B-A22B" },
+      { label: "GitHub", url: "https://github.com/QwenLM/Qwen3" },
+      { label: "Blog", url: "https://qwenlm.github.io/blog/qwen3/" },
+    ],
     variants: [
       {
         id: "32b",
@@ -503,6 +546,11 @@ export const models: ModelFamily[] = [
     org: "DeepSeek",
     description:
       "Reasoning-focused MoE model sharing the same architecture as DeepSeek-V3 (MLA + 256 routed experts), trained with large-scale reinforcement learning for chain-of-thought reasoning without supervised fine-tuning.",
+    links: [
+      { label: "Paper", url: "https://arxiv.org/abs/2501.12948" },
+      { label: "HuggingFace", url: "https://huggingface.co/deepseek-ai/DeepSeek-R1" },
+      { label: "GitHub", url: "https://github.com/deepseek-ai/DeepSeek-R1" },
+    ],
     variants: [
       {
         id: "671b",
@@ -546,6 +594,11 @@ export const models: ModelFamily[] = [
     org: "Moonshot AI",
     description:
       "Trillion-parameter MoE model with Multi-head Latent Attention (MLA) and 384 routed experts. Extends DeepSeek-V3 architecture with QK-Clip and MuonClip optimizer for stable training.",
+    links: [
+      { label: "Paper", url: "https://arxiv.org/abs/2507.04233" },
+      { label: "HuggingFace", url: "https://huggingface.co/moonshotai/Kimi-K2-Instruct" },
+      { label: "GitHub", url: "https://github.com/MoonshotAI/Kimi-K2" },
+    ],
     variants: [
       {
         id: "1t",
@@ -589,6 +642,10 @@ export const models: ModelFamily[] = [
     org: "MiniMax",
     description:
       "MoE transformer with hybrid Lightning Attention (linear) and softmax attention — softmax placed every 7 lightning blocks. 32 experts with top-2 routing, supporting 1M+ token context.",
+    links: [
+      { label: "Paper", url: "https://arxiv.org/abs/2501.08313" },
+      { label: "HuggingFace", url: "https://huggingface.co/MiniMaxAI/MiniMax-M1-80k" },
+    ],
     variants: [
       {
         id: "456b",
@@ -628,6 +685,10 @@ export const models: ModelFamily[] = [
     org: "Zhipu AI",
     description:
       "Dense decoder-only transformer with deep GQA (2 KV heads), SwiGLU activation, and RMSNorm. Pre-trained on 15T tokens including substantial reasoning-type synthetic data.",
+    links: [
+      { label: "HuggingFace", url: "https://huggingface.co/THUDM/glm-4-32b-0414" },
+      { label: "GitHub", url: "https://github.com/THUDM/GLM-4" },
+    ],
     variants: [
       {
         id: "32b",
@@ -656,6 +717,10 @@ export const models: ModelFamily[] = [
     org: "Xiaomi",
     description:
       "Compact reasoning-optimized dense transformer with deeper architecture (36 layers) and wider hidden dimension than comparable 7B models. Uses GQA, SwiGLU, and RoPE with 256K context.",
+    links: [
+      { label: "HuggingFace", url: "https://huggingface.co/XiaomiMiMo/MiMo-7B-RL" },
+      { label: "GitHub", url: "https://github.com/XiaomiMiMo/MiMo" },
+    ],
     variants: [
       {
         id: "7b",
@@ -684,6 +749,10 @@ export const models: ModelFamily[] = [
     org: "Alibaba",
     description:
       "First Qwen model to adopt Gated DeltaNet hybrid attention, combining linear DeltaNet recurrence layers (3/4 of layers) with softmax Gated Attention layers (1/4) in a 3:1 pattern. Uses massive MoE with 512 experts and 10+1 active routing.",
+    links: [
+      { label: "HuggingFace", url: "https://huggingface.co/Qwen/Qwen3-Next-80B-A3B" },
+      { label: "Blog", url: "https://qwenlm.github.io/blog/qwen3-next/" },
+    ],
     variants: [
       {
         id: "80b-a3b",
@@ -729,6 +798,9 @@ export const models: ModelFamily[] = [
     org: "Alibaba",
     description:
       "Scaled-up Gated DeltaNet hybrid architecture with 60 layers, 512 experts, and 64 V heads for higher-capacity state representation. Extends vocabulary to 248K tokens and supports 256K context.",
+    links: [
+      { label: "HuggingFace", url: "https://huggingface.co/Qwen/Qwen3.5-397B-A17B" },
+    ],
     variants: [
       {
         id: "397b-a17b",
@@ -774,6 +846,9 @@ export const models: ModelFamily[] = [
     org: "Alibaba",
     description:
       "Compact Gated DeltaNet hybrid MoE model with 256 experts and efficient 35B total / 3B active parameter design. Same 3:1 DeltaNet/Gated Attention pattern with 256K context support.",
+    links: [
+      { label: "HuggingFace", url: "https://huggingface.co/Qwen/Qwen3.6-35B-A3B" },
+    ],
     variants: [
       {
         id: "35b-a3b",

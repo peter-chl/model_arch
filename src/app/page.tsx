@@ -17,7 +17,19 @@ function ModelCard({ model }: { model: (typeof models)[number] }) {
             {variantNames}
           </span>
         </div>
-        <p className="mb-4 text-sm text-muted line-clamp-2">{model.description}</p>
+        <p className="mb-3 text-sm text-muted line-clamp-2">{model.description}</p>
+        {model.links && model.links.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {model.links.map((link) => (
+              <span
+                key={link.url}
+                className="inline-flex items-center rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted/70"
+              >
+                {link.label}
+              </span>
+            ))}
+          </div>
+        )}
         <p className="text-xs text-accent/70 group-hover:text-accent transition-colors">
           View full architecture →
         </p>

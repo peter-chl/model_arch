@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig } from "@/data/models";
+import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink } from "@/data/models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -823,6 +823,42 @@ function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpande
 // Main component
 // ---------------------------------------------------------------------------
 
+function LinkIcon({ type }: { type: string }) {
+  const cls = "w-3.5 h-3.5 shrink-0";
+  switch (type) {
+    case "Paper":
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <polyline points="10 9 9 9 8 9" />
+        </svg>
+      );
+    case "GitHub":
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+        </svg>
+      );
+    case "HuggingFace":
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm3 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM8 13h8a4 4 0 0 1-8 0z" />
+        </svg>
+      );
+    default:
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+          <polyline points="15 3 21 3 21 9" />
+          <line x1="10" y1="14" x2="21" y2="3" />
+        </svg>
+      );
+  }
+}
+
 export default function ModelViewer({ model }: { model: ModelFamily }) {
   const [variantIdx, setVariantIdx] = useState(0);
   const variant = model.variants[variantIdx];
@@ -911,7 +947,25 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
       </header>
 
       <div className="mx-auto w-full max-w-5xl px-6 py-8 flex-1">
-        <p className="mb-6 text-sm leading-relaxed text-muted max-w-3xl">{model.description}</p>
+        <p className="mb-4 text-sm leading-relaxed text-muted max-w-3xl">{model.description}</p>
+
+        {model.links && model.links.length > 0 && (
+          <div className="mb-6 flex flex-wrap gap-2">
+            {model.links.map((link) => (
+              <a
+                key={link.url}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:text-accent hover:border-accent/40"
+              >
+                <LinkIcon type={link.label} />
+                {link.label}
+                <span className="text-muted/40">&#8599;</span>
+              </a>
+            ))}
+          </div>
+        )}
 
         <div className="mb-6 flex flex-wrap gap-4">
           <div className="rounded-lg border border-border bg-surface px-4 py-3">
