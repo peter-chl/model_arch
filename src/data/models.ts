@@ -15,6 +15,10 @@ export interface MLAConfig {
   v_head_dim: number;
 }
 
+export interface HybridAttentionConfig {
+  softmax_every_n: number;
+}
+
 export interface ModelConfig {
   vocab_size: number;
   hidden_size: number;
@@ -30,6 +34,7 @@ export interface ModelConfig {
   tie_embeddings: boolean;
   moe?: MoEConfig;
   mla?: MLAConfig;
+  hybrid_attn?: HybridAttentionConfig;
 }
 
 export interface ModelVariant {
@@ -598,6 +603,9 @@ export const models: ModelFamily[] = [
             top_k: 2,
             expert_intermediate_size: 9216,
             first_moe_layer: 0,
+          },
+          hybrid_attn: {
+            softmax_every_n: 8,
           },
         },
       },

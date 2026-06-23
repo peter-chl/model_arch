@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig } from "@/data/models";
+import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig } from "@/data/models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,6 +16,7 @@ type ComponentType =
   | "gqa"
   | "mha"
   | "mla"
+  | "lightning"
   | "swiglu"
   | "geglu"
   | "moe"
@@ -176,6 +177,27 @@ const operationDetails: Record<
       {
         type: "latex",
         content: String.raw`\text{Output} = \text{Concat}(\text{all heads}) \cdot W_O`,
+      },
+    ],
+  },
+  lightning: {
+    title: "Lightning Attention (Linear)",
+    operation:
+      "A linear attention variant that replaces the softmax with a kernel-based dot product, achieving O(n) complexity instead of O(n²). Splits computation into intra-block (left product with causal mask) and inter-block (right product with recursive KV accumulation) to avoid slow cumulative sums.",
+    formula: [
+      { type: "text", content: "Intra-block (within each tile, standard masked attention):" },
+      {
+        type: "latex",
+        content: String.raw`\mathbf{O}_{\text{intra}} = \bigl[(\mathbf{Q}\mathbf{K}^\top) \odot \mathbf{M}\bigr] \mathbf{V}, \qquad M_{ts} = \begin{cases}1 & t \geq s \\ 0 & \text{otherwise}\end{cases}`,
+      },
+      { type: "text", content: "Inter-block (across tiles, linear recurrence — no softmax):" },
+      {
+        type: "latex",
+        content: String.raw`\mathbf{KV}_t = \mathbf{KV}_{t-1} + \mathbf{k}_t \mathbf{v}_t^\top, \qquad \mathbf{o}_t = \mathbf{q}_t^\top \mathbf{KV}_t`,
+      },
+      {
+        type: "text",
+        content: "Combined output gives exact causal linear attention with O(n) memory and compute. Periodic softmax attention layers (every N blocks) recalibrate the representation.",
       },
     ],
   },
@@ -392,6 +414,26 @@ function calcGQAAttention(c: ModelConfig): SubLayerInfo {
   };
 }
 
+function calcLightningAttention(c: ModelConfig): SubLayerInfo {
+  const { hidden_size: d, num_attention_heads: h, num_kv_heads: kvh, head_dim: dh } = c;
+  const q = d * h * dh;
+  const k = d * kvh * dh;
+  const v = d * kvh * dh;
+  const o = h * dh * d;
+  return {
+    name: `Lightning Attention (${h}h, ${kvh}kv, linear)`,
+    component: "lightning",
+    dims: `Q:[${d}→${h * dh}] K:[${d}→${kvh * dh}] V:[${d}→${kvh * dh}] O:[${h * dh}→${d}]`,
+    params: q + k + v + o,
+    paramBreakdown: [
+      { label: "W_q", formula: fmul(d, h * dh), value: q },
+      { label: "W_k", formula: fmul(d, kvh * dh), value: k },
+      { label: "W_v", formula: fmul(d, kvh * dh), value: v },
+      { label: "W_o", formula: fmul(h * dh, d), value: o },
+    ],
+  };
+}
+
 function calcMLAAttention(c: ModelConfig, mla: MLAConfig): SubLayerInfo {
   const d = c.hidden_size;
   const h = c.num_attention_heads;
@@ -514,12 +556,18 @@ function generateLayers(c: ModelConfig): LayerInfo[] {
     const pastFirst = c.moe && i >= c.moe.first_moe_layer;
     const matchesInterleave = !c.moe?.interleave_step || (i - (c.moe?.first_moe_layer ?? 0)) % c.moe.interleave_step === 0;
     const isMoE = pastFirst && matchesInterleave;
-    const attn = c.mla ? calcMLAAttention(c, c.mla) : calcGQAAttention(c);
+    const isSoftmaxLayer = !c.hybrid_attn || (i + 1) % c.hybrid_attn.softmax_every_n === 0;
+    const attn = c.mla
+      ? calcMLAAttention(c, c.mla)
+      : isSoftmaxLayer
+        ? calcGQAAttention(c)
+        : calcLightningAttention(c);
     const ffn = isMoE ? calcMoEFFN(c, c.moe!) : calcDenseFFN(c);
 
+    const attnLabel = c.hybrid_attn ? (isSoftmaxLayer ? " [softmax]" : " [lightning]") : "";
     layers.push({
       index: idx++,
-      name: `Layer ${i}`,
+      name: `Layer ${i}${attnLabel}`,
       type: "transformer",
       variant: isMoE ? "moe" : "dense",
       params: attn.params + ffn.params + norm.params * 2,
@@ -710,6 +758,11 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
     if (config.moe.interleave_step) {
       configEntries.push(["MoE interleave", `every ${config.moe.interleave_step} layers`]);
     }
+  }
+  if (config.hybrid_attn) {
+    configEntries.push(
+      ["Attention", `Lightning + Softmax every ${config.hybrid_attn.softmax_every_n} layers`],
+    );
   }
 
   return (
