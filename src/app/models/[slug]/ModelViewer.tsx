@@ -1,8 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig } from "@/data/models";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 type ComponentType =
   | "rmsnorm"
@@ -40,89 +46,285 @@ interface LayerInfo {
   sublayers: SubLayerInfo[];
 }
 
+type FormulaBlock = { type: "latex"; content: string } | { type: "text"; content: string };
+
 // ---------------------------------------------------------------------------
-// Operation descriptions for each component type
+// LaTeX renderer
+// ---------------------------------------------------------------------------
+
+function Latex({ math, display = true }: { math: string; display?: boolean }) {
+  const html = useMemo(() => {
+    try {
+      return katex.renderToString(math, {
+        displayMode: display,
+        throwOnError: false,
+        trust: true,
+      });
+    } catch {
+      return math;
+    }
+  }, [math, display]);
+
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function FormulaRenderer({ blocks }: { blocks: FormulaBlock[] }) {
+  return (
+    <div className="space-y-3">
+      {blocks.map((block, i) =>
+        block.type === "latex" ? (
+          <div key={i} className="overflow-x-auto bg-surface rounded p-3 border border-border">
+            <Latex math={block.content} />
+          </div>
+        ) : (
+          <p key={i} className="text-xs leading-relaxed text-muted">
+            {block.content}
+          </p>
+        ),
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Operation descriptions with LaTeX formulas
 // ---------------------------------------------------------------------------
 
 const operationDetails: Record<
   ComponentType,
-  { title: string; operation: string; formula: string }
+  { title: string; operation: string; formula: FormulaBlock[] }
 > = {
   rmsnorm: {
     title: "Root Mean Square Layer Normalization",
     operation:
       "Normalizes activations by their root mean square without centering (no mean subtraction). Simpler and faster than LayerNorm — only one learnable vector (γ) instead of two.",
-    formula: "y = (x / √(mean(x²) + ε)) · γ\n\nγ is a learnable scale vector of size [hidden_size].",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\text{RMSNorm}(\mathbf{x}) = \frac{\mathbf{x}}{\sqrt{\frac{1}{d}\sum_{i=1}^{d} x_i^2 + \epsilon}} \cdot \boldsymbol{\gamma}`,
+      },
+      {
+        type: "text",
+        content: "γ is a learnable scale vector of size [hidden_size]. No bias term, unlike LayerNorm.",
+      },
+    ],
   },
   layernorm: {
     title: "Layer Normalization",
     operation:
       "Centers and normalizes activations by subtracting the mean and dividing by standard deviation, then applies a learnable affine transform.",
-    formula:
-      "y = ((x − μ) / √(σ² + ε)) · γ + β\n\nγ (scale) and β (bias) are learnable vectors of size [hidden_size].",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\text{LayerNorm}(\mathbf{x}) = \frac{\mathbf{x} - \mu}{\sqrt{\sigma^2 + \epsilon}} \cdot \boldsymbol{\gamma} + \boldsymbol{\beta}`,
+      },
+      {
+        type: "latex",
+        content: String.raw`\mu = \frac{1}{d}\sum_{i=1}^{d} x_i, \qquad \sigma^2 = \frac{1}{d}\sum_{i=1}^{d}(x_i - \mu)^2`,
+      },
+      {
+        type: "text",
+        content: "γ (scale) and β (bias) are learnable vectors of size [hidden_size].",
+      },
+    ],
   },
   mha: {
     title: "Multi-Head Attention",
     operation:
       "Standard self-attention with independent Q, K, V projections per head. Each head attends over the full sequence independently, then outputs are concatenated and projected.",
-    formula:
-      "Q = x · W_q    [batch, seq, hidden] → [batch, seq, num_heads × head_dim]\nK = x · W_k    [batch, seq, hidden] → [batch, seq, num_heads × head_dim]\nV = x · W_v    [batch, seq, hidden] → [batch, seq, num_heads × head_dim]\n\nAttention(Q,K,V) = softmax(Q · Kᵀ / √head_dim) · V\n\nOutput = Concat(head_0, ..., head_h) · W_o",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\begin{aligned}
+\mathbf{Q} &= \mathbf{x} \cdot W_Q \quad &\in \mathbb{R}^{B \times S \times (h \cdot d_h)} \\
+\mathbf{K} &= \mathbf{x} \cdot W_K \quad &\in \mathbb{R}^{B \times S \times (h \cdot d_h)} \\
+\mathbf{V} &= \mathbf{x} \cdot W_V \quad &\in \mathbb{R}^{B \times S \times (h \cdot d_h)}
+\end{aligned}`,
+      },
+      {
+        type: "latex",
+        content: String.raw`\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_h}}\right) V`,
+      },
+      {
+        type: "latex",
+        content: String.raw`\text{Output} = \text{Concat}(\text{head}_1, \dots, \text{head}_h) \cdot W_O`,
+      },
+    ],
   },
   gqa: {
     title: "Grouped-Query Attention",
     operation:
       "A memory-efficient variant of multi-head attention where multiple query heads share the same key-value head. Reduces KV cache size by a factor of num_heads / num_kv_heads while retaining most of MHA's quality.",
-    formula:
-      "Q = x · W_q    [batch, seq, hidden] → [batch, seq, num_heads × head_dim]\nK = x · W_k    [batch, seq, hidden] → [batch, seq, num_kv_heads × head_dim]\nV = x · W_v    [batch, seq, hidden] → [batch, seq, num_kv_heads × head_dim]\n\nEach KV head is shared across (num_heads / num_kv_heads) query heads.\n\nAttention(Q,K,V) = softmax(Q · Kᵀ / √head_dim) · V\n\nOutput = Concat(all heads) · W_o",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\begin{aligned}
+\mathbf{Q} &= \mathbf{x} \cdot W_Q \quad &\in \mathbb{R}^{B \times S \times (h \cdot d_h)} \\
+\mathbf{K} &= \mathbf{x} \cdot W_K \quad &\in \mathbb{R}^{B \times S \times (h_{kv} \cdot d_h)} \\
+\mathbf{V} &= \mathbf{x} \cdot W_V \quad &\in \mathbb{R}^{B \times S \times (h_{kv} \cdot d_h)}
+\end{aligned}`,
+      },
+      {
+        type: "text",
+        content:
+          "Each KV head is shared across (h / h_kv) query heads, reducing KV cache by that factor.",
+      },
+      {
+        type: "latex",
+        content: String.raw`\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_h}}\right) V`,
+      },
+      {
+        type: "latex",
+        content: String.raw`\text{Output} = \text{Concat}(\text{all heads}) \cdot W_O`,
+      },
+    ],
   },
   mla: {
     title: "Multi-head Latent Attention",
     operation:
-      "Compresses KV representations into a low-rank latent space to drastically reduce KV cache size. Instead of caching full K and V tensors per head, only the small compressed latent c_kv is cached. RoPE is applied to a separate subset of dimensions to maintain position awareness.",
-    formula:
-      "KV compression:\n  c_kv, k_rope = x · W_dkv    [hidden → kv_lora_rank + qk_rope_head_dim]\n  K_nope, V = RMSNorm(c_kv) · W_ukv    [kv_lora_rank → heads × (qk_nope_dim + v_dim)]\n\nQ compression:\n  c_q = x · W_dq    [hidden → q_lora_rank]\n  Q_nope, Q_rope = RMSNorm(c_q) · W_uq    [q_lora_rank → heads × (qk_nope_dim + qk_rope_dim)]\n\nK = [K_nope ; RoPE(k_rope)]    Q = [Q_nope ; RoPE(Q_rope)]\n\nAttention + output projection as standard MHA.\n\nKV cache stores only c_kv (rank d_c) instead of full K,V — reducing cache by ~93%.",
+      "Compresses KV representations into a low-rank latent space to drastically reduce KV cache size. Instead of caching full K and V tensors per head, only the small compressed latent c_kv is cached. RoPE is applied to a separate subset of dimensions.",
+    formula: [
+      { type: "text", content: "KV compression — project to low-rank latent:" },
+      {
+        type: "latex",
+        content: String.raw`[\mathbf{c}_{kv},\; \mathbf{k}_{rope}] = \mathbf{x} \cdot W_{dkv} \quad \in \mathbb{R}^{d_c + d_{rope}}`,
+      },
+      { type: "text", content: "KV decompression — recover full keys and values from latent:" },
+      {
+        type: "latex",
+        content: String.raw`[\mathbf{K}_{nope},\; \mathbf{V}] = \text{RMSNorm}(\mathbf{c}_{kv}) \cdot W_{ukv} \quad \in \mathbb{R}^{h \times (d_{nope} + d_v)}`,
+      },
+      { type: "text", content: "Q compression and decompression:" },
+      {
+        type: "latex",
+        content: String.raw`\begin{aligned}
+\mathbf{c}_q &= \mathbf{x} \cdot W_{dq} \quad &\in \mathbb{R}^{d_{qr}} \\
+[\mathbf{Q}_{nope},\; \mathbf{Q}_{rope}] &= \text{RMSNorm}(\mathbf{c}_q) \cdot W_{uq} \quad &\in \mathbb{R}^{h \times (d_{nope} + d_{rope})}
+\end{aligned}`,
+      },
+      { type: "text", content: "RoPE applied only to the rope dimensions; keys and queries are concatenated:" },
+      {
+        type: "latex",
+        content: String.raw`\mathbf{K} = [\mathbf{K}_{nope} \;;\; \text{RoPE}(\mathbf{k}_{rope})], \quad \mathbf{Q} = [\mathbf{Q}_{nope} \;;\; \text{RoPE}(\mathbf{Q}_{rope})]`,
+      },
+      {
+        type: "text",
+        content:
+          "KV cache stores only c_kv (rank d_c) instead of full K and V — reducing cache by ~93%.",
+      },
+    ],
   },
   swiglu: {
     title: "SwiGLU Feed-Forward Network",
     operation:
-      "Gated linear unit with SiLU (Swish) activation. The gate and up projections expand to intermediate_size, element-wise multiply after activation, then the down projection compresses back. Uses 3 weight matrices instead of 2, but intermediate_size is typically 2/3 of what a standard ReLU FFN would use.",
-    formula:
-      "gate = x · W_gate    [hidden → intermediate]\nup   = x · W_up      [hidden → intermediate]\nout  = (SiLU(gate) ⊙ up) · W_down    [intermediate → hidden]\n\nSiLU(x) = x · σ(x)    where σ is sigmoid\n⊙ denotes element-wise multiplication",
+      "Gated linear unit with SiLU (Swish) activation. The gate and up projections expand to intermediate_size, element-wise multiply after activation, then the down projection compresses back. Uses 3 weight matrices instead of 2.",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\begin{aligned}
+\text{gate} &= \mathbf{x} \cdot W_{\text{gate}} \quad &\in \mathbb{R}^{d \to d_{ff}} \\
+\text{up} &= \mathbf{x} \cdot W_{\text{up}} \quad &\in \mathbb{R}^{d \to d_{ff}} \\
+\text{out} &= \bigl(\text{SiLU}(\text{gate}) \odot \text{up}\bigr) \cdot W_{\text{down}} \quad &\in \mathbb{R}^{d_{ff} \to d}
+\end{aligned}`,
+      },
+      {
+        type: "latex",
+        content: String.raw`\text{SiLU}(x) = x \cdot \sigma(x), \qquad \sigma(x) = \frac{1}{1 + e^{-x}}`,
+      },
+      {
+        type: "text",
+        content:
+          "⊙ is element-wise (Hadamard) multiplication. Uses 3 weight matrices instead of 2, but intermediate_size is typically ⅔ of what a ReLU FFN would use.",
+      },
+    ],
   },
   geglu: {
     title: "GeGLU Feed-Forward Network",
     operation:
       "Gated linear unit with GELU activation. Same structure as SwiGLU but uses the GELU activation function instead of SiLU/Swish.",
-    formula:
-      "gate = x · W_gate    [hidden → intermediate]\nup   = x · W_up      [hidden → intermediate]\nout  = (GELU(gate) ⊙ up) · W_down    [intermediate → hidden]\n\nGELU(x) ≈ 0.5x(1 + tanh(√(2/π)(x + 0.044715x³)))",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\begin{aligned}
+\text{gate} &= \mathbf{x} \cdot W_{\text{gate}} \quad &\in \mathbb{R}^{d \to d_{ff}} \\
+\text{up} &= \mathbf{x} \cdot W_{\text{up}} \quad &\in \mathbb{R}^{d \to d_{ff}} \\
+\text{out} &= \bigl(\text{GELU}(\text{gate}) \odot \text{up}\bigr) \cdot W_{\text{down}} \quad &\in \mathbb{R}^{d_{ff} \to d}
+\end{aligned}`,
+      },
+      {
+        type: "latex",
+        content: String.raw`\text{GELU}(x) \approx 0.5\,x\left(1 + \tanh\!\left(\sqrt{\tfrac{2}{\pi}}\bigl(x + 0.044715\,x^3\bigr)\right)\right)`,
+      },
+    ],
   },
   moe: {
     title: "Mixture of Experts Feed-Forward Network",
     operation:
-      "Replaces the dense FFN with a collection of small expert FFNs. A learned router selects the top-k experts for each token. Only the selected experts are activated, so compute per token stays small even though total parameters are large. Shared experts (if any) are always active for every token.",
-    formula:
-      "router_logits = x · W_router    [hidden → num_experts]\nexpert_weights = TopK(softmax(router_logits), k)\n\nFor each selected expert i:\n  expert_out_i = SwiGLU_FFN_i(x)    (each expert is a small FFN)\n\noutput = Σ(weight_i · expert_out_i) + shared_expert(x)\n\nTotal params = num_experts × params_per_expert\nActive params per token = top_k × params_per_expert",
+      "Replaces the dense FFN with a collection of small expert FFNs. A learned router selects the top-k experts for each token. Only selected experts activate, keeping per-token compute small despite large total parameters.",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\text{logits} = \mathbf{x} \cdot W_{\text{router}} \quad \in \mathbb{R}^{d \to n_{\text{experts}}}`,
+      },
+      {
+        type: "latex",
+        content: String.raw`\{(w_i, e_i)\}_{i=1}^{k} = \text{TopK}\bigl(\text{softmax}(\text{logits}),\; k\bigr)`,
+      },
+      {
+        type: "latex",
+        content: String.raw`\text{output} = \sum_{i=1}^{k} w_i \cdot \text{FFN}_{e_i}(\mathbf{x}) \;+\; \text{FFN}_{\text{shared}}(\mathbf{x})`,
+      },
+      {
+        type: "text",
+        content:
+          "Each expert is a small SwiGLU FFN. Total params = num_experts × per_expert_params, but active params per token = top_k × per_expert_params. Shared experts (if any) are always active.",
+      },
+    ],
   },
   embedding: {
     title: "Token Embedding",
     operation:
       "Lookup table mapping discrete token IDs to dense vectors. Each row of the embedding matrix is the learned representation for one token in the vocabulary.",
-    formula:
-      "embedding = W_emb[token_id]\n\nW_emb has shape [vocab_size × hidden_size]\nEach forward pass selects one row per input token.",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\mathbf{e} = W_{\text{emb}}[\text{token\_id}], \qquad W_{\text{emb}} \in \mathbb{R}^{V \times d}`,
+      },
+      {
+        type: "text",
+        content: "Each forward pass selects one row per input token. V = vocab_size, d = hidden_size.",
+      },
+    ],
   },
   lm_head: {
     title: "Language Model Output Head",
     operation:
-      "Linear projection from the final hidden state to vocabulary-sized logits for next-token prediction. The token with the highest logit (or sampled from the distribution) becomes the prediction.",
-    formula:
-      "logits = h · W_lm_headᵀ    [hidden_size → vocab_size]\n\nprobabilities = softmax(logits)",
+      "Linear projection from the final hidden state to vocabulary-sized logits for next-token prediction.",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\text{logits} = \mathbf{h} \cdot W_{\text{lm\_head}}^\top \quad \in \mathbb{R}^{d \to V}`,
+      },
+      {
+        type: "latex",
+        content: String.raw`p(\text{token}) = \text{softmax}(\text{logits})`,
+      },
+    ],
   },
   tied_head: {
     title: "Language Model Output Head (Tied)",
     operation:
-      "Same linear projection as a standard output head, but the weight matrix is shared with the token embedding layer (W_lm_head = W_emb). This saves vocab_size × hidden_size parameters and can improve training stability for smaller models.",
-    formula:
-      "logits = h · W_embᵀ    [hidden_size → vocab_size]\n\nNo additional parameters — reuses the embedding matrix.",
+      "Same projection as a standard output head, but the weight matrix is shared with the token embedding layer. Saves vocab_size × hidden_size parameters.",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\text{logits} = \mathbf{h} \cdot W_{\text{emb}}^\top \quad \in \mathbb{R}^{d \to V}`,
+      },
+      {
+        type: "text",
+        content: "No additional parameters — reuses the embedding matrix W_emb.",
+      },
+    ],
   },
 };
 
@@ -182,10 +384,10 @@ function calcGQAAttention(c: ModelConfig): SubLayerInfo {
     dims: `Q:[${d}→${h * dh}] K:[${d}→${kvh * dh}] V:[${d}→${kvh * dh}] O:[${h * dh}→${d}]`,
     params: q + k + v + o,
     paramBreakdown: [
-      { label: "W_q", formula: `${fmul(d, h * dh)}`, value: q },
-      { label: "W_k", formula: `${fmul(d, kvh * dh)}`, value: k },
-      { label: "W_v", formula: `${fmul(d, kvh * dh)}`, value: v },
-      { label: "W_o", formula: `${fmul(h * dh, d)}`, value: o },
+      { label: "W_q", formula: fmul(d, h * dh), value: q },
+      { label: "W_k", formula: fmul(d, kvh * dh), value: k },
+      { label: "W_v", formula: fmul(d, kvh * dh), value: v },
+      { label: "W_o", formula: fmul(h * dh, d), value: o },
     ],
   };
 }
@@ -206,41 +408,21 @@ function calcMLAAttention(c: ModelConfig, mla: MLAConfig): SubLayerInfo {
     dims: `KV↓:[${d}→${mla.kv_lora_rank}+${mla.qk_rope_head_dim}] KV↑:[${mla.kv_lora_rank}→${h}×${mla.qk_nope_head_dim + mla.v_head_dim}] Q↓:[${d}→${mla.q_lora_rank}] Q↑:[${mla.q_lora_rank}→${h}×${mla.qk_nope_head_dim + mla.qk_rope_head_dim}] O:[${h * mla.v_head_dim}→${d}]`,
     params: kv_a + kv_a_norm + kv_b + q_a + q_a_norm + q_b + o,
     paramBreakdown: [
-      {
-        label: "W_dkv (KV compress)",
-        formula: `${fmul(d, mla.kv_lora_rank + mla.qk_rope_head_dim)}`,
-        value: kv_a,
-      },
-      {
-        label: "KV RMSNorm γ",
-        formula: `${formatNumber(mla.kv_lora_rank)}`,
-        value: kv_a_norm,
-      },
+      { label: "W_dkv (KV compress)", formula: fmul(d, mla.kv_lora_rank + mla.qk_rope_head_dim), value: kv_a },
+      { label: "KV RMSNorm γ", formula: `${formatNumber(mla.kv_lora_rank)}`, value: kv_a_norm },
       {
         label: "W_ukv (KV decompress)",
         formula: `${formatNumber(mla.kv_lora_rank)} × ${h} × ${mla.qk_nope_head_dim + mla.v_head_dim} = ${formatNumber(kv_b)}`,
         value: kv_b,
       },
-      {
-        label: "W_dq (Q compress)",
-        formula: `${fmul(d, mla.q_lora_rank)}`,
-        value: q_a,
-      },
-      {
-        label: "Q RMSNorm γ",
-        formula: `${formatNumber(mla.q_lora_rank)}`,
-        value: q_a_norm,
-      },
+      { label: "W_dq (Q compress)", formula: fmul(d, mla.q_lora_rank), value: q_a },
+      { label: "Q RMSNorm γ", formula: `${formatNumber(mla.q_lora_rank)}`, value: q_a_norm },
       {
         label: "W_uq (Q decompress)",
         formula: `${formatNumber(mla.q_lora_rank)} × ${h} × ${mla.qk_nope_head_dim + mla.qk_rope_head_dim} = ${formatNumber(q_b)}`,
         value: q_b,
       },
-      {
-        label: "W_o (output)",
-        formula: `${fmul(h * mla.v_head_dim, d)}`,
-        value: o,
-      },
+      { label: "W_o (output)", formula: fmul(h * mla.v_head_dim, d), value: o },
     ],
   };
 }
@@ -371,13 +553,7 @@ function generateLayers(c: ModelConfig): LayerInfo[] {
         params: headParams,
         paramBreakdown: c.tie_embeddings
           ? [{ label: "Shared W_emb", formula: "0 (reused)", value: 0 }]
-          : [
-              {
-                label: "W_lm_head",
-                formula: fmul(c.hidden_size, c.vocab_size),
-                value: headParams,
-              },
-            ],
+          : [{ label: "W_lm_head", formula: fmul(c.hidden_size, c.vocab_size), value: headParams }],
       },
     ],
   });
@@ -403,10 +579,7 @@ function SubLayerRow({ sub }: { sub: SubLayerInfo }) {
 
   return (
     <div className="py-1">
-      <button
-        onClick={() => setDetailOpen(!detailOpen)}
-        className="w-full text-left group"
-      >
+      <button onClick={() => setDetailOpen(!detailOpen)} className="w-full text-left group">
         <div className="flex items-center justify-between">
           <span className="text-sm text-foreground/90 group-hover:text-accent transition-colors flex items-center gap-1.5">
             {sub.name}
@@ -421,7 +594,6 @@ function SubLayerRow({ sub }: { sub: SubLayerInfo }) {
 
       {detailOpen && detail && (
         <div className="mt-2 mb-1 rounded border border-border bg-background p-4 space-y-4">
-          {/* Operation description */}
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wider text-accent mb-1.5">
               {detail.title}
@@ -429,27 +601,20 @@ function SubLayerRow({ sub }: { sub: SubLayerInfo }) {
             <p className="text-xs leading-relaxed text-muted">{detail.operation}</p>
           </div>
 
-          {/* Formula */}
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted/70 mb-1.5">
               Formula
             </h4>
-            <pre className="text-xs font-mono text-foreground/80 whitespace-pre-wrap leading-relaxed bg-surface rounded p-3 border border-border overflow-x-auto">
-              {detail.formula}
-            </pre>
+            <FormulaRenderer blocks={detail.formula} />
           </div>
 
-          {/* Parameter breakdown */}
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted/70 mb-1.5">
               Parameter Count
             </h4>
             <div className="space-y-1">
               {sub.paramBreakdown.map((line, i) => (
-                <div
-                  key={i}
-                  className="flex items-baseline justify-between gap-4 text-xs"
-                >
+                <div key={i} className="flex items-baseline justify-between gap-4 text-xs">
                   <span className="text-foreground/80 shrink-0">{line.label}</span>
                   <span className="font-mono text-muted/60 text-right truncate flex-1">
                     {line.formula}
@@ -461,9 +626,7 @@ function SubLayerRow({ sub }: { sub: SubLayerInfo }) {
               ))}
               <div className="border-t border-border pt-1 mt-1 flex items-baseline justify-between text-xs">
                 <span className="font-semibold text-foreground">Total</span>
-                <span className="font-mono font-bold text-accent">
-                  {formatParams(sub.params)}
-                </span>
+                <span className="font-mono font-bold text-accent">{formatParams(sub.params)}</span>
               </div>
             </div>
           </div>
@@ -483,9 +646,7 @@ function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpande
         onClick={() => setOpen(!open)}
         className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/5"
       >
-        <span className="shrink-0 font-mono text-xs text-muted w-5">
-          {open ? "▾" : "▸"}
-        </span>
+        <span className="shrink-0 font-mono text-xs text-muted w-5">{open ? "▾" : "▸"}</span>
         <span className="flex-1 text-sm font-medium text-foreground">{layer.name}</span>
         {layer.variant === "moe" && (
           <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
@@ -548,14 +709,10 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
 
   return (
     <div className="min-h-screen flex flex-col font-sans">
-      {/* Header */}
       <header className="border-b border-border sticky top-0 z-10 bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="text-sm text-muted transition-colors hover:text-foreground"
-            >
+            <Link href="/" className="text-sm text-muted transition-colors hover:text-foreground">
               ← Back
             </Link>
             <div>
@@ -570,9 +727,7 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
                   key={v.id}
                   onClick={() => setVariantIdx(i)}
                   className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                    i === variantIdx
-                      ? "bg-accent text-white"
-                      : "text-muted hover:text-foreground"
+                    i === variantIdx ? "bg-accent text-white" : "text-muted hover:text-foreground"
                   }`}
                 >
                   {v.name}
@@ -586,14 +741,11 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
       <div className="mx-auto w-full max-w-5xl px-6 py-8 flex-1">
         <p className="mb-6 text-sm leading-relaxed text-muted max-w-3xl">{model.description}</p>
 
-        {/* Params summary */}
         <div className="mb-6 flex flex-wrap gap-4">
           <div className="rounded-lg border border-border bg-surface px-4 py-3">
             <p className="text-xs text-muted">Total Parameters</p>
             <p className="text-xl font-bold font-mono text-foreground">{variant.totalParams}</p>
-            <p className="text-[10px] font-mono text-muted/60">
-              calculated: {formatParams(totalParams)}
-            </p>
+            <p className="text-[10px] font-mono text-muted/60">calculated: {formatParams(totalParams)}</p>
           </div>
           {variant.activeParams && (
             <div className="rounded-lg border border-border bg-surface px-4 py-3">
@@ -603,13 +755,10 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
           )}
           <div className="rounded-lg border border-border bg-surface px-4 py-3">
             <p className="text-xs text-muted">Architecture Depth</p>
-            <p className="text-xl font-bold font-mono text-foreground">
-              {config.num_layers} layers
-            </p>
+            <p className="text-xl font-bold font-mono text-foreground">{config.num_layers} layers</p>
           </div>
         </div>
 
-        {/* Config grid */}
         <details className="mb-8 group">
           <summary className="cursor-pointer text-sm font-semibold uppercase tracking-widest text-muted hover:text-foreground transition-colors">
             Configuration
@@ -624,7 +773,6 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
           </div>
         </details>
 
-        {/* Legend */}
         <div className="mb-4 flex flex-wrap gap-4 text-xs text-muted">
           <span className="flex items-center gap-1.5">
             <span className="h-3 w-0.5 rounded bg-violet-500" /> Embedding / Head
@@ -640,12 +788,9 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
           <span className="flex items-center gap-1.5">
             <span className="h-3 w-0.5 rounded bg-zinc-500" /> Norm
           </span>
-          <span className="ml-auto text-muted/60">
-            Click layer → click sublayer for details
-          </span>
+          <span className="ml-auto text-muted/60">Click layer → click sublayer for details</span>
         </div>
 
-        {/* Layer stack */}
         <div className="space-y-px rounded-lg border border-border overflow-hidden">
           {layers.map((layer) => (
             <LayerRow
@@ -656,20 +801,14 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
           ))}
         </div>
 
-        {/* Total */}
         <div className="mt-4 flex justify-end">
           <div className="rounded border border-border bg-surface px-4 py-2 text-right">
-            <p className="text-[10px] uppercase tracking-wider text-muted">
-              Sum of all layers
-            </p>
-            <p className="font-mono text-sm font-bold text-foreground">
-              {formatParams(totalParams)} parameters
-            </p>
+            <p className="text-[10px] uppercase tracking-wider text-muted">Sum of all layers</p>
+            <p className="font-mono text-sm font-bold text-foreground">{formatParams(totalParams)} parameters</p>
           </div>
         </div>
       </div>
 
-      {/* Footer */}
       <footer className="border-t border-border">
         <div className="mx-auto max-w-5xl px-6 py-6">
           <p className="text-center text-xs text-muted">
