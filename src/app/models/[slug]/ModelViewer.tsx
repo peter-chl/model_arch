@@ -511,7 +511,9 @@ function generateLayers(c: ModelConfig): LayerInfo[] {
   const norm = calcNorm(c);
 
   for (let i = 0; i < c.num_layers; i++) {
-    const isMoE = c.moe && i >= c.moe.first_moe_layer;
+    const pastFirst = c.moe && i >= c.moe.first_moe_layer;
+    const matchesInterleave = !c.moe?.interleave_step || (i - (c.moe?.first_moe_layer ?? 0)) % c.moe.interleave_step === 0;
+    const isMoE = pastFirst && matchesInterleave;
     const attn = c.mla ? calcMLAAttention(c, c.mla) : calcGQAAttention(c);
     const ffn = isMoE ? calcMoEFFN(c, c.moe!) : calcDenseFFN(c);
 
@@ -705,6 +707,9 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
       ["Expert FFN dim", formatNumber(config.moe.expert_intermediate_size)],
       ["MoE from layer", config.moe.first_moe_layer.toString()],
     );
+    if (config.moe.interleave_step) {
+      configEntries.push(["MoE interleave", `every ${config.moe.interleave_step} layers`]);
+    }
   }
 
   return (
