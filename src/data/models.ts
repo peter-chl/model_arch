@@ -19,6 +19,16 @@ export interface HybridAttentionConfig {
   softmax_every_n: number;
 }
 
+export interface DeltaNetConfig {
+  qk_heads: number;
+  v_heads: number;
+  head_dim: number;
+  softmax_every_n: number;
+  gated_q_heads: number;
+  gated_kv_heads: number;
+  gated_head_dim: number;
+}
+
 export interface ModelConfig {
   vocab_size: number;
   hidden_size: number;
@@ -35,6 +45,7 @@ export interface ModelConfig {
   moe?: MoEConfig;
   mla?: MLAConfig;
   hybrid_attn?: HybridAttentionConfig;
+  deltanet?: DeltaNetConfig;
 }
 
 export interface ModelVariant {
@@ -663,6 +674,141 @@ export const models: ModelFamily[] = [
           activation: "SwiGLU",
           pos_encoding: "RoPE",
           tie_embeddings: false,
+        },
+      },
+    ],
+  },
+  {
+    slug: "qwen3-next",
+    name: "Qwen3-Next",
+    org: "Alibaba",
+    description:
+      "First Qwen model to adopt Gated DeltaNet hybrid attention, combining linear DeltaNet recurrence layers (3/4 of layers) with softmax Gated Attention layers (1/4) in a 3:1 pattern. Uses massive MoE with 512 experts and 10+1 active routing.",
+    variants: [
+      {
+        id: "80b-a3b",
+        name: "80B-A3B",
+        totalParams: "80B",
+        activeParams: "3B",
+        config: {
+          vocab_size: 151936,
+          hidden_size: 2048,
+          num_layers: 48,
+          num_attention_heads: 16,
+          num_kv_heads: 0,
+          head_dim: 128,
+          intermediate_size: 512,
+          max_seq_len: 65536,
+          norm: "RMSNorm",
+          activation: "SwiGLU",
+          pos_encoding: "RoPE",
+          tie_embeddings: false,
+          moe: {
+            num_experts: 512,
+            shared_experts: 1,
+            top_k: 10,
+            expert_intermediate_size: 512,
+            first_moe_layer: 0,
+          },
+          deltanet: {
+            qk_heads: 16,
+            v_heads: 32,
+            head_dim: 128,
+            softmax_every_n: 4,
+            gated_q_heads: 16,
+            gated_kv_heads: 2,
+            gated_head_dim: 256,
+          },
+        },
+      },
+    ],
+  },
+  {
+    slug: "qwen35",
+    name: "Qwen3.5",
+    org: "Alibaba",
+    description:
+      "Scaled-up Gated DeltaNet hybrid architecture with 60 layers, 512 experts, and 64 V heads for higher-capacity state representation. Extends vocabulary to 248K tokens and supports 256K context.",
+    variants: [
+      {
+        id: "397b-a17b",
+        name: "397B-A17B",
+        totalParams: "397B",
+        activeParams: "17B",
+        config: {
+          vocab_size: 248320,
+          hidden_size: 4096,
+          num_layers: 60,
+          num_attention_heads: 16,
+          num_kv_heads: 0,
+          head_dim: 128,
+          intermediate_size: 1024,
+          max_seq_len: 262144,
+          norm: "RMSNorm",
+          activation: "SwiGLU",
+          pos_encoding: "RoPE",
+          tie_embeddings: false,
+          moe: {
+            num_experts: 512,
+            shared_experts: 1,
+            top_k: 10,
+            expert_intermediate_size: 1024,
+            first_moe_layer: 0,
+          },
+          deltanet: {
+            qk_heads: 16,
+            v_heads: 64,
+            head_dim: 128,
+            softmax_every_n: 4,
+            gated_q_heads: 32,
+            gated_kv_heads: 2,
+            gated_head_dim: 256,
+          },
+        },
+      },
+    ],
+  },
+  {
+    slug: "qwen36",
+    name: "Qwen3.6",
+    org: "Alibaba",
+    description:
+      "Compact Gated DeltaNet hybrid MoE model with 256 experts and efficient 35B total / 3B active parameter design. Same 3:1 DeltaNet/Gated Attention pattern with 256K context support.",
+    variants: [
+      {
+        id: "35b-a3b",
+        name: "35B-A3B",
+        totalParams: "35B",
+        activeParams: "3B",
+        config: {
+          vocab_size: 248320,
+          hidden_size: 2048,
+          num_layers: 40,
+          num_attention_heads: 16,
+          num_kv_heads: 0,
+          head_dim: 128,
+          intermediate_size: 512,
+          max_seq_len: 262144,
+          norm: "RMSNorm",
+          activation: "SwiGLU",
+          pos_encoding: "RoPE",
+          tie_embeddings: false,
+          moe: {
+            num_experts: 256,
+            shared_experts: 1,
+            top_k: 8,
+            expert_intermediate_size: 512,
+            first_moe_layer: 0,
+          },
+          deltanet: {
+            qk_heads: 16,
+            v_heads: 32,
+            head_dim: 128,
+            softmax_every_n: 4,
+            gated_q_heads: 16,
+            gated_kv_heads: 2,
+            gated_head_dim: 256,
+          },
         },
       },
     ],
