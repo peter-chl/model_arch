@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig } from "@/data/models";
+import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink } from "@/data/models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,6 +17,8 @@ type ComponentType =
   | "mha"
   | "mla"
   | "lightning"
+  | "deltanet"
+  | "gated_attn"
   | "swiglu"
   | "geglu"
   | "moe"
@@ -198,6 +200,47 @@ const operationDetails: Record<
       {
         type: "text",
         content: "Combined output gives exact causal linear attention with O(n) memory and compute. Periodic softmax attention layers (every N blocks) recalibrate the representation.",
+      },
+    ],
+  },
+  deltanet: {
+    title: "Gated DeltaNet (Linear Recurrence)",
+    operation:
+      "Linear attention with a learned decay gate (β) that selectively forgets past state. Maintains a per-head state matrix S that accumulates key-value outer products, enabling O(n) compute and constant memory per step. Uses separate QK and V head counts for independent control over state capacity and output dimensionality.",
+    formula: [
+      { type: "text", content: "Per-head state update with gated decay:" },
+      {
+        type: "latex",
+        content: String.raw`\mathbf{S}_t = \beta_t \cdot \mathbf{S}_{t-1} + \mathbf{k}_t \mathbf{v}_t^\top, \qquad \beta_t = \sigma(\mathbf{x} \cdot W_\beta)`,
+      },
+      { type: "text", content: "Output with element-wise gating:" },
+      {
+        type: "latex",
+        content: String.raw`\mathbf{o}_t = (\mathbf{q}_t^\top \mathbf{S}_t) \odot \text{swish}(\mathbf{g}_t), \qquad \mathbf{g}_t = \mathbf{x} \cdot W_g`,
+      },
+      {
+        type: "text",
+        content: "S ∈ ℝ^{d_k × d_v} per head. β provides data-dependent forgetting, unlike fixed decay in prior linear attention variants.",
+      },
+    ],
+  },
+  gated_attn: {
+    title: "Gated Attention (Softmax)",
+    operation:
+      "Standard softmax attention enhanced with an output gate. Multiple query heads share key-value heads (GQA-style), and the output is element-wise gated before the output projection. Used periodically alongside DeltaNet layers to recalibrate representations with full quadratic attention.",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_h}}\right) V`,
+      },
+      { type: "text", content: "Output gating:" },
+      {
+        type: "latex",
+        content: String.raw`\text{Output} = \bigl(\text{Attention} \odot \text{swish}(\mathbf{g})\bigr) \cdot W_O, \qquad \mathbf{g} = \mathbf{x} \cdot W_g`,
+      },
+      {
+        type: "text",
+        content: "Each KV head is shared across (q_heads / kv_heads) query heads. The output gate provides learnable suppression of attention outputs.",
       },
     ],
   },
@@ -434,6 +477,54 @@ function calcLightningAttention(c: ModelConfig): SubLayerInfo {
   };
 }
 
+function calcDeltaNetAttention(c: ModelConfig, dn: DeltaNetConfig): SubLayerInfo {
+  const d = c.hidden_size;
+  const { qk_heads, v_heads, head_dim: dh } = dn;
+  const q = d * qk_heads * dh;
+  const k = d * qk_heads * dh;
+  const v = d * v_heads * dh;
+  const g = d * v_heads * dh;
+  const beta = d * qk_heads;
+  const o = v_heads * dh * d;
+  return {
+    name: `Gated DeltaNet (${qk_heads} QK, ${v_heads} V, dim ${dh})`,
+    component: "deltanet",
+    dims: `Q:[${d}→${qk_heads * dh}] K:[${d}→${qk_heads * dh}] V:[${d}→${v_heads * dh}] G:[${d}→${v_heads * dh}] β:[${d}→${qk_heads}] O:[${v_heads * dh}→${d}]`,
+    params: q + k + v + g + beta + o,
+    paramBreakdown: [
+      { label: "W_q", formula: fmul(d, qk_heads * dh), value: q },
+      { label: "W_k", formula: fmul(d, qk_heads * dh), value: k },
+      { label: "W_v", formula: fmul(d, v_heads * dh), value: v },
+      { label: "W_g (output gate)", formula: fmul(d, v_heads * dh), value: g },
+      { label: "W_β (decay gate)", formula: fmul(d, qk_heads), value: beta },
+      { label: "W_o", formula: fmul(v_heads * dh, d), value: o },
+    ],
+  };
+}
+
+function calcGatedAttention(c: ModelConfig, dn: DeltaNetConfig): SubLayerInfo {
+  const d = c.hidden_size;
+  const { gated_q_heads: qh, gated_kv_heads: kvh, gated_head_dim: dh } = dn;
+  const q = d * qh * dh;
+  const k = d * kvh * dh;
+  const v = d * kvh * dh;
+  const g = d * qh * dh;
+  const o = qh * dh * d;
+  return {
+    name: `Gated Attention (${qh}q, ${kvh}kv, dim ${dh})`,
+    component: "gated_attn",
+    dims: `Q:[${d}→${qh * dh}] K:[${d}→${kvh * dh}] V:[${d}→${kvh * dh}] G:[${d}→${qh * dh}] O:[${qh * dh}→${d}]`,
+    params: q + k + v + g + o,
+    paramBreakdown: [
+      { label: "W_q", formula: fmul(d, qh * dh), value: q },
+      { label: "W_k", formula: fmul(d, kvh * dh), value: k },
+      { label: "W_v", formula: fmul(d, kvh * dh), value: v },
+      { label: "W_g (output gate)", formula: fmul(d, qh * dh), value: g },
+      { label: "W_o", formula: fmul(qh * dh, d), value: o },
+    ],
+  };
+}
+
 function calcMLAAttention(c: ModelConfig, mla: MLAConfig): SubLayerInfo {
   const d = c.hidden_size;
   const h = c.num_attention_heads;
@@ -556,15 +647,27 @@ function generateLayers(c: ModelConfig): LayerInfo[] {
     const pastFirst = c.moe && i >= c.moe.first_moe_layer;
     const matchesInterleave = !c.moe?.interleave_step || (i - (c.moe?.first_moe_layer ?? 0)) % c.moe.interleave_step === 0;
     const isMoE = pastFirst && matchesInterleave;
-    const isSoftmaxLayer = !c.hybrid_attn || (i + 1) % c.hybrid_attn.softmax_every_n === 0;
-    const attn = c.mla
-      ? calcMLAAttention(c, c.mla)
-      : isSoftmaxLayer
-        ? calcGQAAttention(c)
-        : calcLightningAttention(c);
+    let attn: SubLayerInfo;
+    let attnLabel = "";
+    if (c.deltanet) {
+      const isGatedAttnLayer = (i + 1) % c.deltanet.softmax_every_n === 0;
+      if (isGatedAttnLayer) {
+        attn = calcGatedAttention(c, c.deltanet);
+        attnLabel = " [gated-attn]";
+      } else {
+        attn = calcDeltaNetAttention(c, c.deltanet);
+        attnLabel = " [deltanet]";
+      }
+    } else if (c.mla) {
+      attn = calcMLAAttention(c, c.mla);
+    } else if (c.hybrid_attn) {
+      const isSoftmaxLayer = (i + 1) % c.hybrid_attn.softmax_every_n === 0;
+      attn = isSoftmaxLayer ? calcGQAAttention(c) : calcLightningAttention(c);
+      attnLabel = isSoftmaxLayer ? " [softmax]" : " [lightning]";
+    } else {
+      attn = calcGQAAttention(c);
+    }
     const ffn = isMoE ? calcMoEFFN(c, c.moe!) : calcDenseFFN(c);
-
-    const attnLabel = c.hybrid_attn ? (isSoftmaxLayer ? " [softmax]" : " [lightning]") : "";
     layers.push({
       index: idx++,
       name: `Layer ${i}${attnLabel}`,
@@ -720,6 +823,42 @@ function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpande
 // Main component
 // ---------------------------------------------------------------------------
 
+function LinkIcon({ type }: { type: string }) {
+  const cls = "w-3.5 h-3.5 shrink-0";
+  switch (type) {
+    case "Paper":
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <polyline points="10 9 9 9 8 9" />
+        </svg>
+      );
+    case "GitHub":
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+        </svg>
+      );
+    case "HuggingFace":
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm3 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM8 13h8a4 4 0 0 1-8 0z" />
+        </svg>
+      );
+    default:
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+          <polyline points="15 3 21 3 21 9" />
+          <line x1="10" y1="14" x2="21" y2="3" />
+        </svg>
+      );
+  }
+}
+
 export default function ModelViewer({ model }: { model: ModelFamily }) {
   const [variantIdx, setVariantIdx] = useState(0);
   const variant = model.variants[variantIdx];
@@ -727,13 +866,13 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
   const layers = generateLayers(config);
   const totalParams = layers.reduce((s, l) => s + l.params, 0);
 
-  const configEntries = [
+  const configEntries: string[][] = [
     ["Vocab size", formatNumber(config.vocab_size)],
     ["Hidden dim", formatNumber(config.hidden_size)],
     ["Layers", config.num_layers.toString()],
-    ["Attn heads", config.num_attention_heads.toString()],
-    ...(config.num_kv_heads > 0 ? [["KV heads", config.num_kv_heads.toString()]] : []),
-    ["Head dim", config.head_dim.toString()],
+    ...(config.deltanet ? [] : [["Attn heads", config.num_attention_heads.toString()]]),
+    ...(config.deltanet ? [] : config.num_kv_heads > 0 ? [["KV heads", config.num_kv_heads.toString()]] : []),
+    ...(config.deltanet ? [] : [["Head dim", config.head_dim.toString()]]),
     ["FFN dim", formatNumber(config.intermediate_size)],
     ["Max seq len", formatNumber(config.max_seq_len)],
     ["Norm", config.norm],
@@ -764,6 +903,17 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
       ["Attention", `Lightning + Softmax every ${config.hybrid_attn.softmax_every_n} layers`],
     );
   }
+  if (config.deltanet) {
+    configEntries.push(
+      ["DeltaNet QK heads", config.deltanet.qk_heads.toString()],
+      ["DeltaNet V heads", config.deltanet.v_heads.toString()],
+      ["DeltaNet head dim", config.deltanet.head_dim.toString()],
+      ["Gated Attn Q heads", config.deltanet.gated_q_heads.toString()],
+      ["Gated Attn KV heads", config.deltanet.gated_kv_heads.toString()],
+      ["Gated Attn head dim", config.deltanet.gated_head_dim.toString()],
+      ["Attention", `DeltaNet + Gated Attn every ${config.deltanet.softmax_every_n} layers`],
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col font-sans">
@@ -775,7 +925,7 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
             </Link>
             <div>
               <h1 className="text-lg font-bold text-foreground">{model.name}</h1>
-              <p className="text-xs text-muted">{model.org}</p>
+              <p className="text-xs text-muted">{model.org} · {(() => { const [y, m] = model.releaseDate.split("-"); const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return `${months[parseInt(m,10)-1]} ${y}`; })()}</p>
             </div>
           </div>
           {model.variants.length > 1 && (
@@ -797,7 +947,25 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
       </header>
 
       <div className="mx-auto w-full max-w-5xl px-6 py-8 flex-1">
-        <p className="mb-6 text-sm leading-relaxed text-muted max-w-3xl">{model.description}</p>
+        <p className="mb-4 text-sm leading-relaxed text-muted max-w-3xl">{model.description}</p>
+
+        {model.links && model.links.length > 0 && (
+          <div className="mb-6 flex flex-wrap gap-2">
+            {model.links.map((link) => (
+              <a
+                key={link.url}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:text-accent hover:border-accent/40"
+              >
+                <LinkIcon type={link.label} />
+                {link.label}
+                <span className="text-muted/40">&#8599;</span>
+              </a>
+            ))}
+          </div>
+        )}
 
         <div className="mb-6 flex flex-wrap gap-4">
           <div className="rounded-lg border border-border bg-surface px-4 py-3">

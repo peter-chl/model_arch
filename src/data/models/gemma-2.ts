@@ -1,0 +1,54 @@
+import type { ModelFamily } from "./types";
+
+export const gemma2: ModelFamily = {
+  slug: "gemma-2",
+  name: "Gemma 2",
+  org: "Google",
+  releaseDate: "2024-06",
+  description:
+    "Dense decoder-only transformer with alternating local/global attention, logit soft-capping, GeGLU activation, and knowledge distillation training.",
+  links: [
+    { label: "Paper", url: "https://arxiv.org/abs/2408.00118" },
+    { label: "HuggingFace", url: "https://huggingface.co/google/gemma-2-27b" },
+  ],
+  variants: [
+    {
+      id: "9b",
+      name: "9B",
+      totalParams: "9.24B",
+      config: {
+        vocab_size: 256000,
+        hidden_size: 3584,
+        num_layers: 42,
+        num_attention_heads: 16,
+        num_kv_heads: 8,
+        head_dim: 256,
+        intermediate_size: 14336,
+        max_seq_len: 8192,
+        norm: "RMSNorm",
+        activation: "GeGLU",
+        pos_encoding: "RoPE",
+        tie_embeddings: true,
+      },
+    },
+    {
+      id: "27b",
+      name: "27B",
+      totalParams: "27.2B",
+      config: {
+        vocab_size: 256000,
+        hidden_size: 4608,
+        num_layers: 46,
+        num_attention_heads: 32,
+        num_kv_heads: 16,
+        head_dim: 128,
+        intermediate_size: 36864,
+        max_seq_len: 8192,
+        norm: "RMSNorm",
+        activation: "GeGLU",
+        pos_encoding: "RoPE",
+        tie_embeddings: true,
+      },
+    },
+  ],
+};
