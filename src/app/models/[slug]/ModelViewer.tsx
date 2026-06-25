@@ -925,7 +925,7 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
             </Link>
             <div>
               <h1 className="text-lg font-bold text-foreground">{model.name}</h1>
-              <p className="text-xs text-muted">{model.org}</p>
+              <p className="text-xs text-muted">{model.org} · {(() => { const [y, m] = model.releaseDate.split("-"); const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return `${months[parseInt(m,10)-1]} ${y}`; })()}</p>
             </div>
           </div>
           {model.variants.length > 1 && (

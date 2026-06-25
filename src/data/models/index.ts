@@ -28,22 +28,22 @@ import { qwen35 } from "./qwen35";
 import { qwen36 } from "./qwen36";
 
 export const models: ModelFamily[] = [
-  llama3,
-  mixtral,
-  qwen25,
-  deepseekV3,
-  gemma2,
-  phi4,
-  llama4,
-  qwen3,
-  deepseekR1,
   kimiK2,
-  minimaxM1,
-  glm4,
-  mimo,
   qwen3Next,
   qwen35,
   qwen36,
+  llama4,
+  qwen3,
+  glm4,
+  mimo,
+  deepseekR1,
+  minimaxM1,
+  deepseekV3,
+  phi4,
+  qwen25,
+  gemma2,
+  llama3,
+  mixtral,
 ];
 
 export function getModelBySlug(slug: string): ModelFamily | undefined {

@@ -4,6 +4,7 @@ export const qwen25: ModelFamily = {
   slug: "qwen-25",
   name: "Qwen 2.5",
   org: "Alibaba",
+  releaseDate: "2024-09",
   description:
     "Dense decoder-only transformer with GQA, YaRN-extended RoPE for long context, and SwiGLU activation.",
   links: [

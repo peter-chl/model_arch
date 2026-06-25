@@ -4,6 +4,7 @@ export const mimo: ModelFamily = {
   slug: "mimo",
   name: "MiMo",
   org: "Xiaomi",
+  releaseDate: "2025-04",
   description:
     "Compact reasoning-optimized dense transformer with deeper architecture (36 layers) and wider hidden dimension than comparable 7B models. Uses GQA, SwiGLU, and RoPE with 256K context.",
   links: [

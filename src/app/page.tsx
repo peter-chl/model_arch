@@ -1,15 +1,26 @@
 import Link from "next/link";
 import { models } from "@/data/models";
 
+function formatReleaseDate(dateStr: string): string {
+  const [year, month] = dateStr.split("-");
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[parseInt(month, 10) - 1]} ${year}`;
+}
+
 function ModelCard({ model }: { model: (typeof models)[number] }) {
   return (
     <Link href={`/models/${model.slug}`}>
       <div className="group rounded-lg border border-border bg-surface p-6 transition-colors hover:border-accent/40 h-full">
-        <div className="mb-1">
-          <h3 className="font-sans text-lg font-semibold text-foreground">
-            {model.name}
-          </h3>
-          <p className="text-sm text-muted">{model.org}</p>
+        <div className="mb-1 flex items-start justify-between">
+          <div>
+            <h3 className="font-sans text-lg font-semibold text-foreground">
+              {model.name}
+            </h3>
+            <p className="text-sm text-muted">{model.org}</p>
+          </div>
+          <span className="shrink-0 rounded border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted">
+            {formatReleaseDate(model.releaseDate)}
+          </span>
         </div>
         <div className="mb-4 flex flex-wrap gap-1.5">
           {model.variants.map((v) => (

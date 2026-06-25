@@ -4,6 +4,7 @@ export const gemma2: ModelFamily = {
   slug: "gemma-2",
   name: "Gemma 2",
   org: "Google",
+  releaseDate: "2024-06",
   description:
     "Dense decoder-only transformer with alternating local/global attention, logit soft-capping, GeGLU activation, and knowledge distillation training.",
   links: [

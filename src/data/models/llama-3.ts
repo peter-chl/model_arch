@@ -4,6 +4,7 @@ export const llama3: ModelFamily = {
   slug: "llama-3",
   name: "LLaMA 3",
   org: "Meta",
+  releaseDate: "2024-04",
   description:
     "Dense decoder-only transformer with GQA, RoPE, SwiGLU, and RMSNorm pre-normalization.",
   links: [

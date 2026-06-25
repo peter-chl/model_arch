@@ -65,6 +65,7 @@ export interface ModelFamily {
   slug: string;
   name: string;
   org: string;
+  releaseDate: string;
   description: string;
   links?: ModelLink[];
   variants: ModelVariant[];

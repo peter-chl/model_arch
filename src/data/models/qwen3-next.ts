@@ -4,6 +4,7 @@ export const qwen3Next: ModelFamily = {
   slug: "qwen3-next",
   name: "Qwen3-Next",
   org: "Alibaba",
+  releaseDate: "2025-06",
   description:
     "First Qwen model to adopt Gated DeltaNet hybrid attention, combining linear DeltaNet recurrence layers (3/4 of layers) with softmax Gated Attention layers (1/4) in a 3:1 pattern. Uses massive MoE with 512 experts and 10+1 active routing.",
   links: [

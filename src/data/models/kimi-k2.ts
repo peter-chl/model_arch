@@ -4,6 +4,7 @@ export const kimiK2: ModelFamily = {
   slug: "kimi-k2",
   name: "Kimi K2",
   org: "Moonshot AI",
+  releaseDate: "2025-07",
   description:
     "Trillion-parameter MoE model with Multi-head Latent Attention (MLA) and 384 routed experts. Extends DeepSeek-V3 architecture with QK-Clip and MuonClip optimizer for stable training.",
   links: [

@@ -4,6 +4,7 @@ export const mixtral: ModelFamily = {
   slug: "mixtral",
   name: "Mistral / Mixtral",
   org: "Mistral AI",
+  releaseDate: "2023-12",
   description:
     "Sparse MoE transformer with top-2 expert routing, sliding-window attention (Mistral 7B), and shared GQA design.",
   links: [

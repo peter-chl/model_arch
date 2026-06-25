@@ -4,6 +4,7 @@ export const phi4: ModelFamily = {
   slug: "phi-4",
   name: "Phi-4",
   org: "Microsoft",
+  releaseDate: "2024-12",
   description:
     "Dense decoder-only transformer trained on a synthetic-data-heavy mix with pivotal token search for DPO alignment.",
   links: [

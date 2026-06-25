@@ -4,6 +4,7 @@ export const minimaxM1: ModelFamily = {
   slug: "minimax-m1",
   name: "MiniMax-M1",
   org: "MiniMax",
+  releaseDate: "2025-01",
   description:
     "MoE transformer with hybrid Lightning Attention (linear) and softmax attention — softmax placed every 7 lightning blocks. 32 experts with top-2 routing, supporting 1M+ token context.",
   links: [

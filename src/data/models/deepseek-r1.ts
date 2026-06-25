@@ -4,6 +4,7 @@ export const deepseekR1: ModelFamily = {
   slug: "deepseek-r1",
   name: "DeepSeek-R1",
   org: "DeepSeek",
+  releaseDate: "2025-01",
   description:
     "Reasoning-focused MoE model sharing the same architecture as DeepSeek-V3 (MLA + 256 routed experts), trained with large-scale reinforcement learning for chain-of-thought reasoning without supervised fine-tuning.",
   links: [
