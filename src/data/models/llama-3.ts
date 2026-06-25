@@ -1,0 +1,73 @@
+import type { ModelFamily } from "./types";
+
+export const llama3: ModelFamily = {
+  slug: "llama-3",
+  name: "LLaMA 3",
+  org: "Meta",
+  description:
+    "Dense decoder-only transformer with GQA, RoPE, SwiGLU, and RMSNorm pre-normalization.",
+  links: [
+    { label: "Paper", url: "https://arxiv.org/abs/2407.21783" },
+    { label: "HuggingFace", url: "https://huggingface.co/meta-llama" },
+    { label: "GitHub", url: "https://github.com/meta-llama/llama3" },
+  ],
+  variants: [
+    {
+      id: "8b",
+      name: "8B",
+      totalParams: "8.03B",
+      config: {
+        vocab_size: 128256,
+        hidden_size: 4096,
+        num_layers: 32,
+        num_attention_heads: 32,
+        num_kv_heads: 8,
+        head_dim: 128,
+        intermediate_size: 14336,
+        max_seq_len: 8192,
+        norm: "RMSNorm",
+        activation: "SwiGLU",
+        pos_encoding: "RoPE",
+        tie_embeddings: false,
+      },
+    },
+    {
+      id: "70b",
+      name: "70B",
+      totalParams: "70.6B",
+      config: {
+        vocab_size: 128256,
+        hidden_size: 8192,
+        num_layers: 80,
+        num_attention_heads: 64,
+        num_kv_heads: 8,
+        head_dim: 128,
+        intermediate_size: 28672,
+        max_seq_len: 8192,
+        norm: "RMSNorm",
+        activation: "SwiGLU",
+        pos_encoding: "RoPE",
+        tie_embeddings: false,
+      },
+    },
+    {
+      id: "405b",
+      name: "405B",
+      totalParams: "405B",
+      config: {
+        vocab_size: 128256,
+        hidden_size: 16384,
+        num_layers: 126,
+        num_attention_heads: 128,
+        num_kv_heads: 8,
+        head_dim: 128,
+        intermediate_size: 53248,
+        max_seq_len: 8192,
+        norm: "RMSNorm",
+        activation: "SwiGLU",
+        pos_encoding: "RoPE",
+        tie_embeddings: false,
+      },
+    },
+  ],
+};
