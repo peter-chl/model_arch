@@ -4,7 +4,7 @@ export const qwen36: ModelFamily = {
   slug: "qwen36",
   name: "Qwen3.6",
   org: "Alibaba",
-  releaseDate: "2025-06",
+  releaseDate: "2026-04",
   description:
     "Compact Gated DeltaNet hybrid MoE model with 256 experts and efficient 35B total / 3B active parameter design. Same 3:1 DeltaNet/Gated Attention pattern with 256K context support.",
   links: [

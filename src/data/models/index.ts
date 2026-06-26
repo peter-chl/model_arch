@@ -28,16 +28,16 @@ import { qwen35 } from "./qwen35";
 import { qwen36 } from "./qwen36";
 
 export const models: ModelFamily[] = [
-  kimiK2,
-  qwen3Next,
-  qwen35,
   qwen36,
+  qwen35,
+  qwen3Next,
+  kimiK2,
+  minimaxM1,
   llama4,
   qwen3,
   glm4,
   mimo,
   deepseekR1,
-  minimaxM1,
   deepseekV3,
   phi4,
   qwen25,

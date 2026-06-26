@@ -4,7 +4,7 @@ export const qwen35: ModelFamily = {
   slug: "qwen35",
   name: "Qwen3.5",
   org: "Alibaba",
-  releaseDate: "2025-06",
+  releaseDate: "2026-02",
   description:
     "Scaled-up Gated DeltaNet hybrid architecture with 60 layers, 512 experts, and 64 V heads for higher-capacity state representation. Extends vocabulary to 248K tokens and supports 256K context.",
   links: [

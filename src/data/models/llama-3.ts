@@ -2,7 +2,7 @@ import type { ModelFamily } from "./types";
 
 export const llama3: ModelFamily = {
   slug: "llama-3",
-  name: "LLaMA 3",
+  name: "Llama 3",
   org: "Meta",
   releaseDate: "2024-04",
   description:
