@@ -6,7 +6,7 @@ export const kimiK2: ModelFamily = {
   org: "Moonshot AI",
   releaseDate: "2025-07",
   description:
-    "Trillion-parameter MoE model with Multi-head Latent Attention (MLA) and 384 routed experts. Extends DeepSeek-V3 architecture with QK-Clip and MuonClip optimizer for stable training.",
+    "Trillion-parameter MoE model with Multi-head Latent Attention (MLA) and 384 routed experts. Extends DeepSeek-V3 architecture with MuonClip optimizer (Muon + QK-Clip) for stable training.",
   links: [
     { label: "Paper", url: "https://arxiv.org/abs/2506.09988" },
     { label: "HuggingFace", url: "https://huggingface.co/moonshotai/Kimi-K2-Base" },

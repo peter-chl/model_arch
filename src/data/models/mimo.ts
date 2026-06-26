@@ -6,7 +6,7 @@ export const mimo: ModelFamily = {
   org: "Xiaomi",
   releaseDate: "2025-04",
   description:
-    "Compact reasoning-optimized dense transformer with deeper architecture (36 layers) and wider hidden dimension than comparable 7B models. Uses GQA, SwiGLU, and RoPE with 256K context.",
+    "Compact reasoning-optimized dense transformer with deeper architecture (36 layers) and wider hidden dimension than comparable 7B models. Uses GQA, SwiGLU, and RoPE with 32K context.",
   links: [
     { label: "HuggingFace", url: "https://huggingface.co/XiaomiMiMo/MiMo-7B-RL" },
     { label: "GitHub", url: "https://github.com/XiaomiMiMo/MiMo" },
@@ -24,7 +24,7 @@ export const mimo: ModelFamily = {
         num_kv_heads: 8,
         head_dim: 128,
         intermediate_size: 11008,
-        max_seq_len: 262144,
+        max_seq_len: 32768,
         norm: "RMSNorm",
         activation: "SwiGLU",
         pos_encoding: "RoPE",

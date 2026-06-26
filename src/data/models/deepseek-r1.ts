@@ -6,7 +6,7 @@ export const deepseekR1: ModelFamily = {
   org: "DeepSeek",
   releaseDate: "2025-01",
   description:
-    "Reasoning-focused MoE model sharing the same architecture as DeepSeek-V3 (MLA + 256 routed experts), trained with large-scale reinforcement learning for chain-of-thought reasoning without supervised fine-tuning.",
+    "Reasoning-focused MoE model sharing the same architecture as DeepSeek-V3 (MLA + 256 routed experts), trained with cold-start SFT followed by large-scale reinforcement learning for chain-of-thought reasoning.",
   links: [
     { label: "Paper", url: "https://arxiv.org/abs/2501.12948" },
     { label: "HuggingFace", url: "https://huggingface.co/deepseek-ai/DeepSeek-R1" },
