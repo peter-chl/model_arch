@@ -1,0 +1,78 @@
+import type { ModelFamily } from "./types";
+
+export const deepseekV4: ModelFamily = {
+  slug: "deepseek-v4",
+  name: "DeepSeek-V4",
+  org: "DeepSeek",
+  releaseDate: "2026-04",
+  description:
+    "Next-generation MoE model with hybrid Compressed Sparse Attention (CSA) and Heavily Compressed Attention (HCA) replacing standard MLA, Manifold-Constrained Hyper-Connections (mHC), and Muon optimizer. Supports 1M-token context with 27% of V3's inference FLOPs and 10% of KV cache.",
+  links: [
+    { label: "Paper", url: "https://arxiv.org/abs/2606.19348" },
+    { label: "HuggingFace", url: "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro" },
+    { label: "GitHub", url: "https://github.com/deepseek-ai/DeepSeek-V4" },
+  ],
+  variants: [
+    {
+      id: "pro",
+      name: "V4-Pro",
+      totalParams: "1.6T",
+      activeParams: "49B",
+      config: {
+        vocab_size: 129280,
+        hidden_size: 7168,
+        num_layers: 61,
+        num_attention_heads: 128,
+        num_kv_heads: 0,
+        head_dim: 128,
+        intermediate_size: 18432,
+        max_seq_len: 1048576,
+        norm: "RMSNorm",
+        activation: "SwiGLU",
+        pos_encoding: "RoPE (partial)",
+        tie_embeddings: false,
+        mla: {
+          kv_lora_rank: 512,
+          q_lora_rank: 1024,
+          qk_nope_head_dim: 128,
+          qk_rope_head_dim: 64,
+          v_head_dim: 128,
+        },
+        moe: {
+          num_experts: 384,
+          shared_experts: 1,
+          top_k: 6,
+          expert_intermediate_size: 3072,
+          first_moe_layer: 3,
+        },
+      },
+    },
+    {
+      id: "flash",
+      name: "V4-Flash",
+      totalParams: "284B",
+      activeParams: "13B",
+      config: {
+        vocab_size: 129280,
+        hidden_size: 4096,
+        num_layers: 43,
+        num_attention_heads: 64,
+        num_kv_heads: 8,
+        head_dim: 64,
+        intermediate_size: 2048,
+        max_seq_len: 1048576,
+        norm: "RMSNorm",
+        activation: "SwiGLU",
+        pos_encoding: "RoPE (partial)",
+        tie_embeddings: false,
+        moe: {
+          num_experts: 256,
+          shared_experts: 1,
+          top_k: 6,
+          expert_intermediate_size: 2048,
+          first_moe_layer: 0,
+        },
+      },
+    },
+  ],
+};
