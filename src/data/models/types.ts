@@ -54,6 +54,7 @@ export interface ModelVariant {
   totalParams: string;
   activeParams?: string;
   config: ModelConfig;
+  vision_encoder?: VisionEncoderConfig;
 }
 
 export interface ModelLink {
@@ -61,10 +62,29 @@ export interface ModelLink {
   url: string;
 }
 
+export type ModelCategory = "llm" | "vlm";
+
+export interface VisionEncoderConfig {
+  type: string;
+  image_size: number | string;
+  patch_size: number;
+  hidden_size: number;
+  num_layers: number;
+  num_heads: number;
+  intermediate_size: number;
+  num_image_tokens: number | string;
+  norm?: string;
+  total_params?: string;
+  temporal_patch_size?: number;
+  spatial_merge_size?: number;
+  window_attn?: string;
+}
+
 export interface ModelFamily {
   slug: string;
   name: string;
   org: string;
+  category?: ModelCategory;
   releaseDate: string;
   description: string;
   links?: ModelLink[];

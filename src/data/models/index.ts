@@ -7,6 +7,8 @@ export type {
   ModelVariant,
   ModelLink,
   ModelFamily,
+  ModelCategory,
+  VisionEncoderConfig,
 } from "./types";
 
 import type { ModelFamily } from "./types";
@@ -29,6 +31,8 @@ import { mimo } from "./mimo";
 import { qwen3Next } from "./qwen3-next";
 import { qwen35 } from "./qwen35";
 import { qwen36 } from "./qwen36";
+import { internvl25 } from "./internvl-2-5";
+import { qwen25vl } from "./qwen25-vl";
 
 export const models: ModelFamily[] = [
   deepseekV4,
@@ -46,7 +50,9 @@ export const models: ModelFamily[] = [
   deepseekR1,
   deepseekV3,
   phi4,
+  qwen25vl,
   qwen25,
+  internvl25,
   gemma2,
   llama3,
   mixtral,

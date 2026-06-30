@@ -1,54 +1,5 @@
-import Link from "next/link";
 import { models } from "@/data/models";
-
-function formatReleaseDate(dateStr: string): string {
-  const [year, month] = dateStr.split("-");
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${months[parseInt(month, 10) - 1]} ${year}`;
-}
-
-function ModelCard({ model }: { model: (typeof models)[number] }) {
-  return (
-    <Link href={`/models/${model.slug}`}>
-      <div className="group rounded-lg border border-border bg-surface p-6 transition-colors hover:border-accent/40 h-full">
-        <div className="mb-1 flex items-start justify-between">
-          <div>
-            <h3 className="font-sans text-lg font-semibold text-foreground">
-              {model.name}
-            </h3>
-            <p className="text-sm text-muted">{model.org}</p>
-          </div>
-          <span className="shrink-0 rounded border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted">
-            {formatReleaseDate(model.releaseDate)}
-          </span>
-        </div>
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {model.variants.map((v) => (
-            <span key={v.id} className="rounded-full border border-border bg-background px-2.5 py-0.5 font-mono text-xs text-accent">
-              {v.name}
-            </span>
-          ))}
-        </div>
-        <p className="mb-3 text-sm text-muted line-clamp-2">{model.description}</p>
-        {model.links && model.links.length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-1.5">
-            {model.links.map((link) => (
-              <span
-                key={link.url}
-                className="inline-flex items-center rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted/70"
-              >
-                {link.label}
-              </span>
-            ))}
-          </div>
-        )}
-        <p className="text-xs text-accent/70 group-hover:text-accent transition-colors">
-          View full architecture →
-        </p>
-      </div>
-    </Link>
-  );
-}
+import ModelGrid from "@/app/components/ModelGrid";
 
 export default function Home() {
   return (
@@ -127,19 +78,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Model Cards */}
-      <section className="flex-1">
-        <div className="mx-auto max-w-5xl px-6 py-16">
-          <h2 className="mb-8 text-sm font-semibold uppercase tracking-widest text-muted">
-            Models
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {models.map((m) => (
-              <ModelCard key={m.slug} model={m} />
-            ))}
-          </div>
-        </div>
-      </section>
+      <ModelGrid models={models} />
 
       {/* Footer */}
       <footer className="border-t border-border">

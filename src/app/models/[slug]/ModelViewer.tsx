@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink } from "@/data/models";
+import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink, VisionEncoderConfig } from "@/data/models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -820,6 +820,50 @@ function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpande
 }
 
 // ---------------------------------------------------------------------------
+// Vision Encoder Panel
+// ---------------------------------------------------------------------------
+
+function VisionEncoderPanel({ ve }: { ve: VisionEncoderConfig }) {
+  const entries: [string, string][] = [
+    ["Image size", typeof ve.image_size === "number" ? `${ve.image_size} px` : ve.image_size],
+    ["Patch size", `${ve.patch_size} px`],
+    ["Hidden dim", ve.hidden_size.toString()],
+    ["Layers", ve.num_layers.toString()],
+    ["Attn heads", ve.num_heads.toString()],
+    ["FFN dim", ve.intermediate_size.toLocaleString()],
+    ["Image tokens", ve.num_image_tokens.toString()],
+  ];
+  if (ve.temporal_patch_size) entries.push(["Temporal patch", `${ve.temporal_patch_size} frames`]);
+  if (ve.spatial_merge_size) entries.push(["Spatial merge", `${ve.spatial_merge_size}×${ve.spatial_merge_size}`]);
+  if (ve.norm) entries.push(["Norm", ve.norm]);
+  if (ve.window_attn) entries.push(["Window attn", ve.window_attn]);
+
+  return (
+    <div className="mb-6 rounded-lg border border-teal-500/20 bg-teal-500/5 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-widest text-teal-400">
+          Vision Encoder
+        </span>
+        <span className="font-mono text-sm font-semibold text-foreground">{ve.type}</span>
+        {ve.total_params && (
+          <span className="rounded border border-border bg-background px-1.5 py-0.5 font-mono text-xs text-muted">
+            {ve.total_params}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {entries.map(([label, value]) => (
+          <div key={label} className="rounded border border-border bg-background/50 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted">{label}</p>
+            <p className="font-mono text-sm text-foreground">{value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -967,11 +1011,15 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
           </div>
         )}
 
+        {variant.vision_encoder && <VisionEncoderPanel ve={variant.vision_encoder} />}
+
         <div className="mb-6 flex flex-wrap gap-4">
           <div className="rounded-lg border border-border bg-surface px-4 py-3">
             <p className="text-xs text-muted">Total Parameters</p>
             <p className="text-xl font-bold font-mono text-foreground">{variant.totalParams}</p>
-            <p className="text-[10px] font-mono text-muted/60">calculated: {formatParams(totalParams)}</p>
+            <p className="text-[10px] font-mono text-muted/60">
+              {variant.vision_encoder ? "LM backbone: " : "calculated: "}{formatParams(totalParams)}
+            </p>
           </div>
           {variant.activeParams && (
             <div className="rounded-lg border border-border bg-surface px-4 py-3">
@@ -999,6 +1047,11 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
           </div>
         </details>
 
+        {variant.vision_encoder && (
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">
+            Language Backbone — Layer Breakdown
+          </p>
+        )}
         <div className="mb-4 flex flex-wrap gap-4 text-xs text-muted">
           <span className="flex items-center gap-1.5">
             <span className="h-3 w-0.5 rounded bg-violet-500" /> Embedding / Head
