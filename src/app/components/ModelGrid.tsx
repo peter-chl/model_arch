@@ -22,9 +22,15 @@ function ModelCard({ model }: { model: ModelFamily }) {
             </h3>
             <div className="flex items-center gap-2">
               <p className="text-sm text-muted">{model.org}</p>
-              {category === "vlm" && (
-                <span className="rounded bg-teal-500/10 px-1.5 py-0.5 text-[10px] font-medium text-teal-400">
-                  VLM
+              {category !== "llm" && (
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                  category === "vlm"
+                    ? "bg-teal-500/10 text-teal-400"
+                    : category === "image-gen"
+                    ? "bg-purple-500/10 text-purple-400"
+                    : "bg-orange-500/10 text-orange-400"
+                }`}>
+                  {CATEGORY_LABELS[category]}
                 </span>
               )}
             </div>
@@ -63,6 +69,13 @@ function ModelCard({ model }: { model: ModelFamily }) {
 
 type Filter = ModelCategory | "all";
 
+const CATEGORY_LABELS: Record<string, string> = {
+  llm: "LLM",
+  vlm: "VLM",
+  "image-gen": "Image Gen",
+  "video-gen": "Video Gen",
+};
+
 interface ModelGridProps {
   models: ModelFamily[];
 }
@@ -70,16 +83,19 @@ interface ModelGridProps {
 export default function ModelGrid({ models }: ModelGridProps) {
   const [filter, setFilter] = useState<Filter>("all");
 
-  const llmCount = models.filter((m) => (m.category ?? "llm") === "llm").length;
-  const vlmCount = models.filter((m) => m.category === "vlm").length;
+  function countCat(cat: string) {
+    return models.filter((m) => (m.category ?? "llm") === cat).length;
+  }
 
   const filtered =
     filter === "all" ? models : models.filter((m) => (m.category ?? "llm") === filter);
 
   const tabs: { key: Filter; label: string }[] = [
     { key: "all", label: `All (${models.length})` },
-    { key: "llm", label: `LLM (${llmCount})` },
-    { key: "vlm", label: `VLM (${vlmCount})` },
+    { key: "llm", label: `LLM (${countCat("llm")})` },
+    { key: "vlm", label: `VLM (${countCat("vlm")})` },
+    { key: "image-gen", label: `Image Gen (${countCat("image-gen")})` },
+    { key: "video-gen", label: `Video Gen (${countCat("video-gen")})` },
   ];
 
   return (

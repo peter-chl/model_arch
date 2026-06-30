@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink, VisionEncoderConfig } from "@/data/models";
+import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink, VisionEncoderConfig, DiffusionConfig, ModelVariant } from "@/data/models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -820,6 +820,97 @@ function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpande
 }
 
 // ---------------------------------------------------------------------------
+// Diffusion Model Panel
+// ---------------------------------------------------------------------------
+
+function DiffusionPanel({ variant }: { variant: ModelVariant }) {
+  const d = variant.diffusion!;
+
+  const diitEntries: [string, string][] = [
+    ["Architecture", d.architecture],
+    ["Guidance", d.guidance],
+    ["Hidden dim", d.hidden_size.toLocaleString()],
+    ["Layers", d.num_single_layers
+      ? `${d.num_layers} double + ${d.num_single_layers} single`
+      : d.num_layers.toString()],
+    ["Attn heads", d.num_attention_heads.toString()],
+    ["Head dim", d.attention_head_dim.toString()],
+  ];
+  if (d.ffn_size) diitEntries.push(["FFN dim", d.ffn_size.toLocaleString()]);
+  if (d.num_experts) {
+    diitEntries.push(["Experts", `${d.num_experts} total`]);
+    if (d.active_experts) diitEntries.push(["Active/step", d.active_experts.toString()]);
+  }
+
+  const vaeEntries: [string, string][] = [
+    ["Latent channels", d.vae_latent_channels.toString()],
+    ["Spatial compression", `${d.vae_spatial_compression}× per dim`],
+  ];
+  if (d.vae_temporal_compression) {
+    vaeEntries.push(["Temporal compression", `${d.vae_temporal_compression}×`]);
+  }
+
+  const outputEntries: [string, string][] = [
+    ["Text encoder", d.text_encoder],
+    ["Text embed dim", d.text_embed_dim.toLocaleString()],
+    ["Max resolution", d.max_resolution],
+  ];
+  if (d.max_duration) outputEntries.push(["Max duration", d.max_duration]);
+  if (d.fps) outputEntries.push(["Frame rate", `${d.fps} fps`]);
+
+  function Grid({ entries, color }: { entries: [string, string][]; color: string }) {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {entries.map(([label, value]) => (
+          <div key={label} className={`rounded border ${color} bg-background/50 px-3 py-2`}>
+            <p className="text-[10px] uppercase tracking-wider text-muted">{label}</p>
+            <p className="font-mono text-xs text-foreground break-words">{value}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="mb-6 flex flex-wrap gap-4">
+        <div className="rounded-lg border border-border bg-surface px-4 py-3">
+          <p className="text-xs text-muted">Total Parameters</p>
+          <p className="text-xl font-bold font-mono text-foreground">{variant.totalParams}</p>
+        </div>
+        {variant.activeParams && (
+          <div className="rounded-lg border border-border bg-surface px-4 py-3">
+            <p className="text-xs text-muted">Active Parameters</p>
+            <p className="text-xl font-bold font-mono text-accent">{variant.activeParams}</p>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">
+          Diffusion Transformer
+        </h3>
+        <Grid entries={diitEntries} color="border-border" />
+      </div>
+
+      <div>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">
+          Variational Autoencoder (VAE)
+        </h3>
+        <Grid entries={vaeEntries} color="border-border" />
+      </div>
+
+      <div>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">
+          Conditioning &amp; Output
+        </h3>
+        <Grid entries={outputEntries} color="border-border" />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Vision Encoder Panel
 // ---------------------------------------------------------------------------
 
@@ -907,10 +998,11 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
   const [variantIdx, setVariantIdx] = useState(0);
   const variant = model.variants[variantIdx];
   const config = variant.config;
-  const layers = generateLayers(config);
+  const isDiffusion = !!variant.diffusion;
+  const layers = config ? generateLayers(config) : [];
   const totalParams = layers.reduce((s, l) => s + l.params, 0);
 
-  const configEntries: string[][] = [
+  const configEntries: string[][] = config ? [
     ["Vocab size", formatNumber(config.vocab_size)],
     ["Hidden dim", formatNumber(config.hidden_size)],
     ["Layers", config.num_layers.toString()],
@@ -923,32 +1015,21 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
     ["Activation", config.activation],
     ["Pos encoding", config.pos_encoding],
     ["Tie embeddings", config.tie_embeddings ? "Yes" : "No"],
-  ];
-
-  if (config.mla) {
-    configEntries.push(
+    ...(config.mla ? [
       ["KV LoRA rank", config.mla.kv_lora_rank.toString()],
       ["Q LoRA rank", config.mla.q_lora_rank.toString()],
-    );
-  }
-  if (config.moe) {
-    configEntries.push(
+    ] : []),
+    ...(config.moe ? [
       ["Experts", `${config.moe.num_experts} routed, ${config.moe.shared_experts} shared`],
       ["Top-k routing", config.moe.top_k.toString()],
       ["Expert FFN dim", formatNumber(config.moe.expert_intermediate_size)],
       ["MoE from layer", config.moe.first_moe_layer.toString()],
-    );
-    if (config.moe.interleave_step) {
-      configEntries.push(["MoE interleave", `every ${config.moe.interleave_step} layers`]);
-    }
-  }
-  if (config.hybrid_attn) {
-    configEntries.push(
+      ...(config.moe.interleave_step ? [["MoE interleave", `every ${config.moe.interleave_step} layers`]] : []),
+    ] : []),
+    ...(config.hybrid_attn ? [
       ["Attention", `Lightning + Softmax every ${config.hybrid_attn.softmax_every_n} layers`],
-    );
-  }
-  if (config.deltanet) {
-    configEntries.push(
+    ] : []),
+    ...(config.deltanet ? [
       ["DeltaNet QK heads", config.deltanet.qk_heads.toString()],
       ["DeltaNet V heads", config.deltanet.v_heads.toString()],
       ["DeltaNet head dim", config.deltanet.head_dim.toString()],
@@ -956,8 +1037,8 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
       ["Gated Attn KV heads", config.deltanet.gated_kv_heads.toString()],
       ["Gated Attn head dim", config.deltanet.gated_head_dim.toString()],
       ["Attention", `DeltaNet + Gated Attn every ${config.deltanet.softmax_every_n} layers`],
-    );
-  }
+    ] : []),
+  ] : [];
 
   return (
     <div className="min-h-screen flex flex-col font-sans">
@@ -1011,81 +1092,91 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
           </div>
         )}
 
-        {variant.vision_encoder && <VisionEncoderPanel ve={variant.vision_encoder} />}
+        {isDiffusion ? (
+          <DiffusionPanel variant={variant} />
+        ) : (
+          <>
+            {variant.vision_encoder && <VisionEncoderPanel ve={variant.vision_encoder} />}
 
-        <div className="mb-6 flex flex-wrap gap-4">
-          <div className="rounded-lg border border-border bg-surface px-4 py-3">
-            <p className="text-xs text-muted">Total Parameters</p>
-            <p className="text-xl font-bold font-mono text-foreground">{variant.totalParams}</p>
-            <p className="text-[10px] font-mono text-muted/60">
-              {variant.vision_encoder ? "LM backbone: " : "calculated: "}{formatParams(totalParams)}
-            </p>
-          </div>
-          {variant.activeParams && (
-            <div className="rounded-lg border border-border bg-surface px-4 py-3">
-              <p className="text-xs text-muted">Active Parameters</p>
-              <p className="text-xl font-bold font-mono text-accent">{variant.activeParams}</p>
-            </div>
-          )}
-          <div className="rounded-lg border border-border bg-surface px-4 py-3">
-            <p className="text-xs text-muted">Architecture Depth</p>
-            <p className="text-xl font-bold font-mono text-foreground">{config.num_layers} layers</p>
-          </div>
-        </div>
-
-        <details className="mb-8 group">
-          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-widest text-muted hover:text-foreground transition-colors">
-            Configuration
-          </summary>
-          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {configEntries.map(([label, value]) => (
-              <div key={label} className="rounded border border-border bg-surface px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-muted">{label}</p>
-                <p className="font-mono text-sm text-foreground">{value}</p>
+            <div className="mb-6 flex flex-wrap gap-4">
+              <div className="rounded-lg border border-border bg-surface px-4 py-3">
+                <p className="text-xs text-muted">Total Parameters</p>
+                <p className="text-xl font-bold font-mono text-foreground">{variant.totalParams}</p>
+                <p className="text-[10px] font-mono text-muted/60">
+                  {variant.vision_encoder ? "LM backbone: " : "calculated: "}{formatParams(totalParams)}
+                </p>
               </div>
-            ))}
-          </div>
-        </details>
+              {variant.activeParams && (
+                <div className="rounded-lg border border-border bg-surface px-4 py-3">
+                  <p className="text-xs text-muted">Active Parameters</p>
+                  <p className="text-xl font-bold font-mono text-accent">{variant.activeParams}</p>
+                </div>
+              )}
+              {config && (
+                <div className="rounded-lg border border-border bg-surface px-4 py-3">
+                  <p className="text-xs text-muted">Architecture Depth</p>
+                  <p className="text-xl font-bold font-mono text-foreground">{config.num_layers} layers</p>
+                </div>
+              )}
+            </div>
 
-        {variant.vision_encoder && (
-          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">
-            Language Backbone — Layer Breakdown
-          </p>
+            {configEntries.length > 0 && (
+              <details className="mb-8 group">
+                <summary className="cursor-pointer text-sm font-semibold uppercase tracking-widest text-muted hover:text-foreground transition-colors">
+                  Configuration
+                </summary>
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {configEntries.map(([label, value]) => (
+                    <div key={label} className="rounded border border-border bg-surface px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wider text-muted">{label}</p>
+                      <p className="font-mono text-sm text-foreground">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {variant.vision_encoder && (
+              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">
+                Language Backbone — Layer Breakdown
+              </p>
+            )}
+            <div className="mb-4 flex flex-wrap gap-4 text-xs text-muted">
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-0.5 rounded bg-violet-500" /> Embedding / Head
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-0.5 rounded bg-blue-500" /> Transformer (dense)
+              </span>
+              {config?.moe && (
+                <span className="flex items-center gap-1.5">
+                  <span className="h-3 w-0.5 rounded bg-amber-500" /> Transformer (MoE)
+                </span>
+              )}
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-0.5 rounded bg-zinc-500" /> Norm
+              </span>
+              <span className="ml-auto text-muted/60">Click layer → click sublayer for details</span>
+            </div>
+
+            <div className="space-y-px rounded-lg border border-border overflow-hidden">
+              {layers.map((layer) => (
+                <LayerRow
+                  key={`${variant.id}-${layer.index}`}
+                  layer={layer}
+                  defaultExpanded={layer.type === "embedding" || layer.type === "head"}
+                />
+              ))}
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <div className="rounded border border-border bg-surface px-4 py-2 text-right">
+                <p className="text-[10px] uppercase tracking-wider text-muted">Sum of all layers</p>
+                <p className="font-mono text-sm font-bold text-foreground">{formatParams(totalParams)} parameters</p>
+              </div>
+            </div>
+          </>
         )}
-        <div className="mb-4 flex flex-wrap gap-4 text-xs text-muted">
-          <span className="flex items-center gap-1.5">
-            <span className="h-3 w-0.5 rounded bg-violet-500" /> Embedding / Head
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-3 w-0.5 rounded bg-blue-500" /> Transformer (dense)
-          </span>
-          {config.moe && (
-            <span className="flex items-center gap-1.5">
-              <span className="h-3 w-0.5 rounded bg-amber-500" /> Transformer (MoE)
-            </span>
-          )}
-          <span className="flex items-center gap-1.5">
-            <span className="h-3 w-0.5 rounded bg-zinc-500" /> Norm
-          </span>
-          <span className="ml-auto text-muted/60">Click layer → click sublayer for details</span>
-        </div>
-
-        <div className="space-y-px rounded-lg border border-border overflow-hidden">
-          {layers.map((layer) => (
-            <LayerRow
-              key={`${variant.id}-${layer.index}`}
-              layer={layer}
-              defaultExpanded={layer.type === "embedding" || layer.type === "head"}
-            />
-          ))}
-        </div>
-
-        <div className="mt-4 flex justify-end">
-          <div className="rounded border border-border bg-surface px-4 py-2 text-right">
-            <p className="text-[10px] uppercase tracking-wider text-muted">Sum of all layers</p>
-            <p className="font-mono text-sm font-bold text-foreground">{formatParams(totalParams)} parameters</p>
-          </div>
-        </div>
       </div>
 
       <footer className="border-t border-border">

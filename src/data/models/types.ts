@@ -48,13 +48,35 @@ export interface ModelConfig {
   deltanet?: DeltaNetConfig;
 }
 
+export interface DiffusionConfig {
+  architecture: string;
+  guidance: string;
+  hidden_size: number;
+  num_layers: number;
+  num_single_layers?: number;
+  num_attention_heads: number;
+  attention_head_dim: number;
+  ffn_size?: number;
+  num_experts?: number;
+  active_experts?: number;
+  vae_latent_channels: number;
+  vae_spatial_compression: number;
+  vae_temporal_compression?: number;
+  text_encoder: string;
+  text_embed_dim: number;
+  max_resolution: string;
+  max_duration?: string;
+  fps?: number;
+}
+
 export interface ModelVariant {
   id: string;
   name: string;
   totalParams: string;
   activeParams?: string;
-  config: ModelConfig;
+  config?: ModelConfig;
   vision_encoder?: VisionEncoderConfig;
+  diffusion?: DiffusionConfig;
 }
 
 export interface ModelLink {
@@ -62,7 +84,7 @@ export interface ModelLink {
   url: string;
 }
 
-export type ModelCategory = "llm" | "vlm";
+export type ModelCategory = "llm" | "vlm" | "image-gen" | "video-gen";
 
 export interface VisionEncoderConfig {
   type: string;

@@ -4,6 +4,7 @@ export type {
   HybridAttentionConfig,
   DeltaNetConfig,
   ModelConfig,
+  DiffusionConfig,
   ModelVariant,
   ModelLink,
   ModelFamily,
@@ -33,28 +34,42 @@ import { qwen35 } from "./qwen35";
 import { qwen36 } from "./qwen36";
 import { internvl25 } from "./internvl-2-5";
 import { qwen25vl } from "./qwen25-vl";
+import { wan21, wan22, wan27 } from "./wan";
+import { hunyuanVideo } from "./hunyuan-video";
+import { flux1 } from "./flux-1";
+import { cogVideoX } from "./cogvideox";
 
 export const models: ModelFamily[] = [
+  // 2026
   deepseekV4,
   qwen36,
+  wan27,
   glm5,
   qwen35,
   kimiK25,
+  // 2025
   qwen3Next,
+  wan22,
   kimiK2,
   minimaxM1,
   llama4,
   qwen3,
   glm4,
   mimo,
+  qwen25vl,
+  wan21,
   deepseekR1,
+  // 2024
   deepseekV3,
   phi4,
-  qwen25vl,
+  hunyuanVideo,
+  cogVideoX,
   qwen25,
   internvl25,
+  flux1,
   gemma2,
   llama3,
+  // 2023
   mixtral,
 ];
 
