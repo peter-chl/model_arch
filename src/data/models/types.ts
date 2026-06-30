@@ -60,6 +60,7 @@ export interface DiffusionConfig {
   ffn_size?: number;
   num_experts?: number;
   active_experts?: number;
+  patch_size?: number;
   vae_latent_channels: number;
   vae_spatial_compression: number;
   vae_temporal_compression?: number;

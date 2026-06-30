@@ -1,6 +1,7 @@
 import type { ModelFamily } from "./types";
 
 const WAN_VAE = {
+  patch_size: 2,
   vae_latent_channels: 16,
   vae_spatial_compression: 8,
   vae_temporal_compression: 4,

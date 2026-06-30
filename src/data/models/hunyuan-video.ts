@@ -26,6 +26,7 @@ export const hunyuanVideo: ModelFamily = {
         num_single_layers: 40,
         num_attention_heads: 24,
         attention_head_dim: 128,
+        patch_size: 2,
         vae_latent_channels: 16,
         vae_spatial_compression: 8,
         vae_temporal_compression: 4,

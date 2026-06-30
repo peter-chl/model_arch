@@ -25,6 +25,7 @@ export const cogVideoX: ModelFamily = {
         num_layers: 42,
         num_attention_heads: 48,
         attention_head_dim: 64,
+        patch_size: 2,
         vae_latent_channels: 16,
         vae_spatial_compression: 8,
         vae_temporal_compression: 4,

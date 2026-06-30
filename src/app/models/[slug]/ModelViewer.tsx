@@ -21,10 +21,13 @@ type ComponentType =
   | "gated_attn"
   | "swiglu"
   | "geglu"
+  | "gelu_ffn"
   | "moe"
   | "embedding"
   | "lm_head"
-  | "tied_head";
+  | "tied_head"
+  | "patch_embed"
+  | "output_proj";
 
 interface ParamLine {
   label: string;
@@ -391,6 +394,58 @@ const operationDetails: Record<
       },
     ],
   },
+  patch_embed: {
+    title: "Patch Embedding",
+    operation:
+      "Projects spatial (and temporal for video) patches of the compressed VAE latent into the transformer's hidden dimension. For a 2×2 spatial patch with C latent channels, each 2×2 group of latent positions becomes one transformer token via a single linear projection.",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\mathbf{x}_\text{tokens} = \text{Flatten}\!\bigl(\mathbf{z}_\text{patches}\bigr) \cdot W_\text{proj}, \qquad W_\text{proj} \in \mathbb{R}^{(C \cdot p^2) \times d}`,
+      },
+      {
+        type: "text",
+        content:
+          "z is the VAE latent (already compressed). p = spatial patch size (typically 2). C = latent channels (typically 16). d = transformer hidden size.",
+      },
+    ],
+  },
+  output_proj: {
+    title: "Output Projection (Unpatch)",
+    operation:
+      "Projects the final transformer hidden states back to predict the denoised latent patches. Inverse of patch embedding: maps from hidden_size to latent_channels × patch_size². Predictions are unpacked from patches back into the spatial latent grid.",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\hat{\mathbf{z}} = \mathbf{h} \cdot W_\text{out}, \qquad W_\text{out} \in \mathbb{R}^{d \times (C \cdot p^2)}`,
+      },
+      {
+        type: "text",
+        content:
+          "The predicted noise (or velocity field in flow matching) is reshaped from the token sequence back into the compressed latent.",
+      },
+    ],
+  },
+  gelu_ffn: {
+    title: "GELU Feed-Forward Network",
+    operation:
+      "Standard two-layer MLP with GELU activation. Expands to ffn_size, applies GELU, then projects back to hidden_size. Simpler than GeGLU/SwiGLU — only two weight matrices (no separate gate). Used in FLUX and HunyuanVideo double- and single-stream blocks.",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`\text{FFN}(\mathbf{x}) = \text{GELU}\!\bigl(\mathbf{x} \cdot W_{\text{up}}\bigr) \cdot W_{\text{down}}`,
+      },
+      {
+        type: "latex",
+        content: String.raw`\text{GELU}(x) \approx x \cdot \Phi(x), \qquad \Phi = \text{standard normal CDF}`,
+      },
+      {
+        type: "text",
+        content:
+          "Two weight matrices (W_up and W_down), unlike the three-matrix GeGLU/SwiGLU variants. Often uses the tanh approximation of GELU for speed.",
+      },
+    ],
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -715,6 +770,214 @@ function generateLayers(c: ModelConfig): LayerInfo[] {
 }
 
 // ---------------------------------------------------------------------------
+// Diffusion layer generation
+// ---------------------------------------------------------------------------
+
+function generateDiffusionLayers(d: DiffusionConfig): LayerInfo[] {
+  const layers: LayerInfo[] = [];
+  let idx = 0;
+  const H = d.hidden_size;
+  const nH = d.num_attention_heads;
+  const dH = d.attention_head_dim;
+  const pSize = d.patch_size ?? 2;
+  const C = d.vae_latent_channels;
+  const ffnSize = d.ffn_size ?? (4 * H);
+  const isDual = !!d.num_single_layers;
+
+  const makeNorm = (name: string): SubLayerInfo => ({
+    name,
+    component: "rmsnorm",
+    dims: `[${H}]`,
+    params: H,
+    paramBreakdown: [{ label: "γ", formula: `${formatNumber(H)}`, value: H }],
+  });
+
+  const makeAttn = (label: string): SubLayerInfo => {
+    const qP = H * nH * dH;
+    const kP = H * nH * dH;
+    const vP = H * nH * dH;
+    const oP = nH * dH * H;
+    return {
+      name: `${label} (${nH}h × dim ${dH})`,
+      component: "mha",
+      dims: `Q/K/V:[${H}→${nH * dH}] O:[${nH * dH}→${H}]`,
+      params: qP + kP + vP + oP,
+      paramBreakdown: [
+        { label: "W_q", formula: fmul(H, nH * dH), value: qP },
+        { label: "W_k", formula: fmul(H, nH * dH), value: kP },
+        { label: "W_v", formula: fmul(H, nH * dH), value: vP },
+        { label: "W_o", formula: fmul(nH * dH, H), value: oP },
+      ],
+    };
+  };
+
+  const makeFFN = (label: string, component: ComponentType): SubLayerInfo => {
+    if (component === "gelu_ffn") {
+      const uP = H * ffnSize;
+      const dP = ffnSize * H;
+      return {
+        name: `${label} (${ffnSize.toLocaleString()} dim)`,
+        component,
+        dims: `up:[${H}→${ffnSize}] down:[${ffnSize}→${H}]`,
+        params: uP + dP,
+        paramBreakdown: [
+          { label: "W_up", formula: fmul(H, ffnSize), value: uP },
+          { label: "W_down", formula: fmul(ffnSize, H), value: dP },
+        ],
+      };
+    }
+    const gP = H * ffnSize;
+    const uP = H * ffnSize;
+    const dP = ffnSize * H;
+    return {
+      name: `${label} (${ffnSize.toLocaleString()} dim)`,
+      component,
+      dims: `gate/up:[${H}→${ffnSize}] down:[${ffnSize}→${H}]`,
+      params: gP + uP + dP,
+      paramBreakdown: [
+        { label: "W_gate", formula: fmul(H, ffnSize), value: gP },
+        { label: "W_up", formula: fmul(H, ffnSize), value: uP },
+        { label: "W_down", formula: fmul(ffnSize, H), value: dP },
+      ],
+    };
+  };
+
+  // Patch embedding
+  const patchIn = C * pSize * pSize;
+  const patchP = patchIn * H;
+  layers.push({
+    index: idx++,
+    name: "Patch Embedding",
+    type: "embedding",
+    params: patchP,
+    sublayers: [{
+      name: "Linear patch projection",
+      component: "patch_embed",
+      dims: `[${patchIn} → ${H}]`,
+      params: patchP,
+      paramBreakdown: [{ label: "W_proj", formula: fmul(patchIn, H), value: patchP }],
+    }],
+  });
+
+  if (isDual) {
+    // FLUX / HunyuanVideo: double-stream blocks (img + txt independent streams, joint attention)
+    // then single-stream blocks (joint sequence)
+    for (let i = 0; i < d.num_layers; i++) {
+      const imgAttn = makeAttn("Joint MHA — img");
+      const txtAttn = makeAttn("Joint MHA — txt");
+      const imgFFN = makeFFN("img GELU FFN", "gelu_ffn");
+      const txtFFN = makeFFN("txt GELU FFN", "gelu_ffn");
+      const blockP = H * 4 + imgAttn.params + txtAttn.params + imgFFN.params + txtFFN.params;
+      layers.push({
+        index: idx++,
+        name: `Double Block ${i}`,
+        type: "transformer",
+        params: blockP,
+        sublayers: [
+          makeNorm("img: RMSNorm (pre-attn)"),
+          makeNorm("txt: RMSNorm (pre-attn)"),
+          imgAttn,
+          txtAttn,
+          makeNorm("img: RMSNorm (pre-FFN)"),
+          imgFFN,
+          makeNorm("txt: RMSNorm (pre-FFN)"),
+          txtFFN,
+        ],
+      });
+    }
+    for (let i = 0; i < d.num_single_layers!; i++) {
+      const attn = makeAttn("Self-Attention");
+      const ffn = makeFFN("GELU FFN", "gelu_ffn");
+      const blockP = H + attn.params + ffn.params;
+      layers.push({
+        index: idx++,
+        name: `Single Block ${i}`,
+        type: "transformer",
+        params: blockP,
+        sublayers: [makeNorm("RMSNorm"), attn, ffn],
+      });
+    }
+  } else {
+    // Standard DiT: Wan, CogVideoX
+    const ffnComp: ComponentType = d.ffn_size ? "swiglu" : "geglu";
+    const isMoE = !!(d.num_experts && d.num_experts > 1);
+    const nExperts = d.num_experts ?? 1;
+    const activeExperts = d.active_experts ?? 1;
+
+    for (let i = 0; i < d.num_layers; i++) {
+      const attn = makeAttn("Self-Attention");
+      let ffnSublayer: SubLayerInfo;
+      let ffnP: number;
+
+      if (isMoE) {
+        const perExpertP = 3 * H * ffnSize;
+        ffnP = nExperts * perExpertP;
+        ffnSublayer = {
+          name: `MoE SwiGLU FFN (${nExperts} experts, ${activeExperts} active)`,
+          component: "moe",
+          dims: `gate/up:[${H}→${ffnSize}] down:[${ffnSize}→${H}] × ${nExperts} experts`,
+          params: ffnP,
+          paramBreakdown: [
+            {
+              label: `Per-expert SwiGLU (×${nExperts} total)`,
+              formula: `3 × ${fmul(H, ffnSize)} = ${formatNumber(perExpertP)} each`,
+              value: ffnP,
+            },
+            {
+              label: `Active per step (×${activeExperts})`,
+              formula: formatNumber(activeExperts * perExpertP),
+              value: activeExperts * perExpertP,
+            },
+          ],
+        };
+      } else {
+        const ffn = makeFFN(ffnComp === "swiglu" ? "SwiGLU FFN" : "GeGLU FFN", ffnComp);
+        ffnSublayer = ffn;
+        ffnP = ffn.params;
+      }
+
+      const blockP = H * 2 + attn.params + ffnP;
+      layers.push({
+        index: idx++,
+        name: `DiT Block ${i}`,
+        type: "transformer",
+        variant: isMoE ? "moe" : "dense",
+        params: blockP,
+        sublayers: [makeNorm("RMSNorm (pre-attn)"), attn, makeNorm("RMSNorm (pre-FFN)"), ffnSublayer],
+      });
+    }
+  }
+
+  // Final norm
+  layers.push({
+    index: idx++,
+    name: "Final RMSNorm",
+    type: "norm",
+    params: H,
+    sublayers: [makeNorm("RMSNorm")],
+  });
+
+  // Output projection
+  const patchOut = C * pSize * pSize;
+  const outP = H * patchOut;
+  layers.push({
+    index: idx++,
+    name: "Output Projection",
+    type: "head",
+    params: outP,
+    sublayers: [{
+      name: "Linear (unpatch)",
+      component: "output_proj",
+      dims: `[${H} → ${patchOut}]`,
+      params: outP,
+      paramBreakdown: [{ label: "W_out", formula: fmul(H, patchOut), value: outP }],
+    }],
+  });
+
+  return layers;
+}
+
+// ---------------------------------------------------------------------------
 // UI Components
 // ---------------------------------------------------------------------------
 
@@ -1002,6 +1265,8 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
   const isDiffusion = !!variant.diffusion;
   const layers = config ? generateLayers(config) : [];
   const totalParams = layers.reduce((s, l) => s + l.params, 0);
+  const diffusionLayers = variant.diffusion ? generateDiffusionLayers(variant.diffusion) : [];
+  const diffusionBackboneParams = diffusionLayers.reduce((s, l) => s + l.params, 0);
 
   const configEntries: string[][] = config ? [
     ["Vocab size", formatNumber(config.vocab_size)],
@@ -1094,7 +1359,55 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
         )}
 
         {isDiffusion ? (
-          <DiffusionPanel variant={variant} />
+          <>
+            <DiffusionPanel variant={variant} />
+
+            <div className="mt-10">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-muted">
+                DiT Layer Breakdown
+              </p>
+              <p className="mb-4 text-xs text-muted/60">
+                Core backbone only — timestep embedding MLP, text projections, and conditioning
+                networks excluded. Parameter counts are estimates from architecture specs.
+              </p>
+              <div className="mb-4 flex flex-wrap gap-4 text-xs text-muted">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-3 w-0.5 rounded bg-violet-500" /> Patch Embed / Output
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-3 w-0.5 rounded bg-blue-500" /> Transformer (dense)
+                </span>
+                {variant.diffusion?.num_experts && variant.diffusion.num_experts > 1 && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-3 w-0.5 rounded bg-amber-500" /> Transformer (MoE)
+                  </span>
+                )}
+                <span className="flex items-center gap-1.5">
+                  <span className="h-3 w-0.5 rounded bg-zinc-500" /> Norm
+                </span>
+                <span className="ml-auto text-muted/60">Click layer → click sublayer for details</span>
+              </div>
+
+              <div className="space-y-px rounded-lg border border-border overflow-hidden">
+                {diffusionLayers.map((layer) => (
+                  <LayerRow
+                    key={`${variant.id}-diff-${layer.index}`}
+                    layer={layer}
+                    defaultExpanded={layer.type === "embedding" || layer.type === "head"}
+                  />
+                ))}
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <div className="rounded border border-border bg-surface px-4 py-2 text-right">
+                  <p className="text-[10px] uppercase tracking-wider text-muted">Backbone layers sum</p>
+                  <p className="font-mono text-sm font-bold text-foreground">
+                    {formatParams(diffusionBackboneParams)} parameters
+                  </p>
+                </div>
+              </div>
+            </div>
+          </>
         ) : (
           <>
             {variant.vision_encoder && <VisionEncoderPanel ve={variant.vision_encoder} />}
