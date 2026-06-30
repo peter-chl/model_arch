@@ -828,6 +828,7 @@ function DiffusionPanel({ variant }: { variant: ModelVariant }) {
 
   const diitEntries: [string, string][] = [
     ["Architecture", d.architecture],
+    ["Conditioning", d.conditioning],
     ["Guidance", d.guidance],
     ["Hidden dim", d.hidden_size.toLocaleString()],
     ["Layers", d.num_single_layers

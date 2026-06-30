@@ -18,6 +18,7 @@ export const flux1: ModelFamily = {
       totalParams: "12B",
       diffusion: {
         architecture: "MMDiT — double stream (19) + single stream (38)",
+        conditioning: "text",
         guidance: "Flow Matching (Rectified Flow), guidance-distilled",
         hidden_size: 3072,
         num_layers: 19,
@@ -37,6 +38,7 @@ export const flux1: ModelFamily = {
       totalParams: "12B",
       diffusion: {
         architecture: "MMDiT — double stream (19) + single stream (38)",
+        conditioning: "text",
         guidance: "Flow Matching (Rectified Flow), step-distilled (4 steps)",
         hidden_size: 3072,
         num_layers: 19,

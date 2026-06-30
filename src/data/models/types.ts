@@ -50,6 +50,7 @@ export interface ModelConfig {
 
 export interface DiffusionConfig {
   architecture: string;
+  conditioning: string;
   guidance: string;
   hidden_size: number;
   num_layers: number;

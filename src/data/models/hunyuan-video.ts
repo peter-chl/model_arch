@@ -19,6 +19,7 @@ export const hunyuanVideo: ModelFamily = {
       totalParams: "13B",
       diffusion: {
         architecture: "Full Attention — double stream (20) + single stream (40)",
+        conditioning: "text",
         guidance: "Flow Matching",
         hidden_size: 3072,
         num_layers: 20,

@@ -19,6 +19,7 @@ export const cogVideoX: ModelFamily = {
       totalParams: "5B",
       diffusion: {
         architecture: "3D Full Attention DiT (EAdLN)",
+        conditioning: "text",
         guidance: "DDPM + CFG",
         hidden_size: 3072,
         num_layers: 42,
