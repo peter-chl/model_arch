@@ -1,4 +1,4 @@
-import type { ModelFamily } from "./types";
+import type { ModelFamily, PipelineStage } from "./types";
 
 const WAN_VAE = {
   patch_size: 2,
@@ -11,6 +11,143 @@ const WAN21_TEXT_ENCODER = {
   text_encoder: "uT5-XXL",
   text_embed_dim: 4096,
 };
+
+const VAE_ENCODER_STAGE: PipelineStage = {
+  name: "3D Causal VAE Encoder",
+  role: "frozen",
+  dims: "→ [16, T/4, H/8, W/8]",
+  note: "4× temporal, 8× spatial compression; frozen during DiT training",
+};
+
+const VAE_DECODER_STAGE: PipelineStage = {
+  name: "3D Causal VAE Decoder",
+  role: "frozen",
+  dims: "→ [T, H, W, 3]",
+  note: "4× temporal, 8× spatial upsampling; frozen during DiT training",
+};
+
+const UT5_STAGE: PipelineStage = {
+  name: "uT5-XXL Text Encoder",
+  role: "frozen",
+  dims: "→ [S, 4096]",
+  note: "Multilingual T5-XXL (~11B params), frozen; supports Chinese + English",
+};
+
+function t2vPipelineStages(hidden: number, numBlocks: number, outputNote: string): PipelineStage[] {
+  return [
+    { name: "Text Prompt", role: "input" },
+    UT5_STAGE,
+    {
+      name: "Text Projection",
+      role: "trained",
+      dims: `[S, 4096] → [S, ${hidden.toLocaleString()}]`,
+      note: "Linear; maps T5 embeddings to DiT hidden dim, prepended to video token sequence",
+    },
+    {
+      name: "Gaussian Noise Latent",
+      role: "stochastic",
+      dims: "[16, T/4, H/8, W/8]",
+      note: "Sampled from N(0,I) at t=T; progressively denoised across T→0",
+    },
+    {
+      name: "Patch Embedding",
+      role: "trained",
+      dims: `→ [N_video, ${hidden.toLocaleString()}]`,
+      note: "2×2 spatial patchify in latent space; N_video = T/4 × H/16 × W/16",
+    },
+    {
+      name: "3D RoPE",
+      role: "trained",
+      dims: "per-axis frequencies for T, H, W",
+      note: "Applied inside each attention layer; no learned position parameters",
+    },
+    {
+      name: "Timestep MLP",
+      role: "trained",
+      dims: `t → [${hidden.toLocaleString()}]`,
+      note: "Sinusoidal embedding → Linear → SiLU → Linear; drives AdaLN-Zero in each DiT block",
+    },
+    {
+      name: `Full-Attention DiT × ${numBlocks}`,
+      role: "trained",
+      dims: `[S_text ⊕ N_video, ${hidden.toLocaleString()}]`,
+      note: "Text and video tokens in one joint sequence; full self-attention across both; AdaLN-Zero modulates each block's norms via timestep",
+    },
+    { name: "Final RMSNorm", role: "trained" },
+    {
+      name: "Output Projection",
+      role: "trained",
+      dims: `[N_video, ${hidden.toLocaleString()}] → [16, T/4, H/8, W/8]`,
+      note: "Unpatchify video token positions only; predicts velocity field (flow matching)",
+    },
+    VAE_DECODER_STAGE,
+    { name: "Video Frames", role: "output", dims: outputNote },
+  ];
+}
+
+function i2vPipelineStages(hidden: number, numBlocks: number, outputNote: string): PipelineStage[] {
+  return [
+    { name: "Reference Image", role: "input", dims: "[H, W, 3]" },
+    { name: "Text Prompt", role: "input" },
+    {
+      name: "VAE Image Encoder",
+      role: "frozen",
+      dims: "→ [16, H/8, W/8]",
+      note: "Encodes single reference frame to latent; frozen",
+    },
+    {
+      name: "Gaussian Noise Latent",
+      role: "stochastic",
+      dims: "[16, T/4, H/8, W/8]",
+    },
+    {
+      name: "Tile + Channel Concat",
+      role: "merge",
+      dims: "→ [32, T/4, H/8, W/8]",
+      note: "Image latent tiled across T/4 frames and channel-concatenated with noise latent",
+    },
+    UT5_STAGE,
+    {
+      name: "Text Projection",
+      role: "trained",
+      dims: `[S, 4096] → [S, ${hidden.toLocaleString()}]`,
+      note: "Linear; prepended to video token sequence",
+    },
+    {
+      name: "Patch Embedding",
+      role: "trained",
+      dims: `→ [N_video, ${hidden.toLocaleString()}]`,
+      note: "2×2 spatial patchify; 32-channel input (2× vs T2V due to channel concat)",
+    },
+    {
+      name: "3D RoPE",
+      role: "trained",
+      dims: "per-axis frequencies for T, H, W",
+      note: "Applied inside each attention layer",
+    },
+    {
+      name: "Timestep MLP",
+      role: "trained",
+      dims: `t → [${hidden.toLocaleString()}]`,
+      note: "Sinusoidal → Linear → SiLU → Linear; drives AdaLN-Zero",
+    },
+    {
+      name: `Full-Attention DiT × ${numBlocks}`,
+      role: "trained",
+      dims: `[S_text ⊕ N_video, ${hidden.toLocaleString()}]`,
+      note: "Same architecture as T2V; image conditioning enters via channel concat at input, not via attention",
+    },
+    { name: "Final RMSNorm", role: "trained" },
+    {
+      name: "Output Projection",
+      role: "trained",
+      dims: `[N_video, ${hidden.toLocaleString()}] → [16, T/4, H/8, W/8]`,
+      note: "Predicts velocity field for 16 denoised channels; image latent channels discarded",
+    },
+    VAE_DECODER_STAGE,
+    { name: "Video Frames", role: "output", dims: outputNote },
+  ];
+}
 
 export const wan21: ModelFamily = {
   slug: "wan-2-1",
@@ -44,6 +181,10 @@ export const wan21: ModelFamily = {
         max_duration: "~4s @ 16fps",
         fps: 16,
       },
+      pipeline: {
+        name: "Text-to-Video",
+        stages: t2vPipelineStages(1536, 30, "up to ~4 s @ 16 fps, 832×480"),
+      },
     },
     {
       id: "t2v-14b",
@@ -63,6 +204,10 @@ export const wan21: ModelFamily = {
         max_resolution: "1280×720",
         max_duration: "~5s @ 24fps",
         fps: 24,
+      },
+      pipeline: {
+        name: "Text-to-Video",
+        stages: t2vPipelineStages(5120, 40, "up to ~5 s @ 24 fps, 1280×720"),
       },
     },
     {
@@ -84,6 +229,10 @@ export const wan21: ModelFamily = {
         max_duration: "~5s @ 24fps",
         fps: 24,
       },
+      pipeline: {
+        name: "Image-to-Video",
+        stages: i2vPipelineStages(5120, 40, "up to ~5 s @ 24 fps, 832×480"),
+      },
     },
     {
       id: "i2v-14b-720p",
@@ -103,6 +252,10 @@ export const wan21: ModelFamily = {
         max_resolution: "1280×720",
         max_duration: "~5s @ 24fps",
         fps: 24,
+      },
+      pipeline: {
+        name: "Image-to-Video",
+        stages: i2vPipelineStages(5120, 40, "up to ~5 s @ 24 fps, 1280×720"),
       },
     },
   ],
@@ -141,6 +294,67 @@ export const wan22: ModelFamily = {
         max_resolution: "1280×720",
         max_duration: "5s @ 24fps",
         fps: 24,
+      },
+      pipeline: {
+        name: "Image-to-Video (MoE-DiT)",
+        stages: [
+          { name: "Reference Image", role: "input", dims: "[H, W, 3]" },
+          { name: "Text Prompt", role: "input" },
+          {
+            name: "VAE Image Encoder",
+            role: "frozen",
+            dims: "→ [16, H/8, W/8]",
+            note: "Single-frame spatial encoding; frozen",
+          },
+          {
+            name: "Gaussian Noise Latent",
+            role: "stochastic",
+            dims: "[16, T/4, H/8, W/8]",
+          },
+          {
+            name: "Tile + Channel Concat",
+            role: "merge",
+            dims: "→ [32, T/4, H/8, W/8]",
+            note: "Image latent tiled × T/4 frames, channel-concatenated with noise",
+          },
+          UT5_STAGE,
+          {
+            name: "Text Projection",
+            role: "trained",
+            dims: "[S, 4096] → [S, 5120]",
+          },
+          {
+            name: "Patch Embedding",
+            role: "trained",
+            dims: "→ [N_video, 5120]",
+            note: "2×2 spatial patchify; 32-channel input",
+          },
+          {
+            name: "3D RoPE",
+            role: "trained",
+            dims: "per-axis frequencies for T, H, W",
+          },
+          {
+            name: "Timestep MLP",
+            role: "trained",
+            dims: "t → [5120]",
+            note: "SNR at current timestep also determines which expert activates",
+          },
+          {
+            name: "MoE-DiT × 40 (27B total, 14B active)",
+            role: "trained",
+            dims: "[S_text ⊕ N_video, 5120]",
+            note: "High-SNR timesteps → high-noise expert (layout); low-SNR → low-noise expert (detail); 1 expert active per step",
+          },
+          { name: "Final RMSNorm", role: "trained" },
+          {
+            name: "Output Projection",
+            role: "trained",
+            dims: "[N_video, 5120] → [16, T/4, H/8, W/8]",
+          },
+          VAE_DECODER_STAGE,
+          { name: "Video Frames", role: "output", dims: "up to 5 s @ 24 fps, 1280×720" },
+        ],
       },
     },
   ],

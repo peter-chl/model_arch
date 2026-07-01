@@ -79,6 +79,27 @@ export interface ModelVariant {
   config?: ModelConfig;
   vision_encoder?: VisionEncoderConfig;
   diffusion?: DiffusionConfig;
+  pipeline?: ModalityPipeline;
+}
+
+export type PipelineStageRole =
+  | "input"       // raw external input
+  | "frozen"      // pretrained component, not trained with this model
+  | "trained"     // learned weights that are part of this model
+  | "stochastic"  // sampled from a distribution (e.g. Gaussian noise)
+  | "merge"       // where multiple signal paths combine
+  | "output";     // final output
+
+export interface PipelineStage {
+  name: string;
+  role: PipelineStageRole;
+  dims?: string;
+  note?: string;
+}
+
+export interface ModalityPipeline {
+  name: string;
+  stages: PipelineStage[];
 }
 
 export interface ModelLink {

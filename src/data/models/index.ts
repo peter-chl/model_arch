@@ -10,6 +10,9 @@ export type {
   ModelFamily,
   ModelCategory,
   VisionEncoderConfig,
+  PipelineStageRole,
+  PipelineStage,
+  ModalityPipeline,
 } from "./types";
 
 import type { ModelFamily } from "./types";

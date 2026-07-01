@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink, VisionEncoderConfig, DiffusionConfig, ModelVariant } from "@/data/models";
+import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink, VisionEncoderConfig, DiffusionConfig, ModelVariant, ModalityPipeline, PipelineStageRole } from "@/data/models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1083,6 +1083,70 @@ function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpande
 }
 
 // ---------------------------------------------------------------------------
+// Pipeline Flow Section
+// ---------------------------------------------------------------------------
+
+const ROLE_STYLES: Record<
+  PipelineStageRole,
+  { border: string; badge?: string; badgeColor: string; dim?: boolean }
+> = {
+  input:      { border: "border-l-zinc-400",    badge: "input",   badgeColor: "text-zinc-400 bg-zinc-400/10" },
+  stochastic: { border: "border-l-amber-400",   badge: "∿ noise", badgeColor: "text-amber-400 bg-amber-400/10" },
+  frozen:     { border: "border-l-zinc-600",    badge: "frozen",  badgeColor: "text-zinc-500 bg-zinc-500/10", dim: true },
+  trained:    { border: "border-l-accent",      badge: undefined, badgeColor: "" },
+  merge:      { border: "border-l-violet-500",  badge: "⊕ merge", badgeColor: "text-violet-400 bg-violet-400/10" },
+  output:     { border: "border-l-emerald-500", badge: "output",  badgeColor: "text-emerald-400 bg-emerald-400/10" },
+};
+
+function PipelineSection({ pipeline }: { pipeline: ModalityPipeline }) {
+  return (
+    <div className="mb-8">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">
+        {pipeline.name} — Full Pipeline
+      </p>
+      <div className="space-y-px rounded-lg border border-border overflow-hidden">
+        {pipeline.stages.map((stage, i) => {
+          const s = ROLE_STYLES[stage.role];
+          return (
+            <div
+              key={i}
+              className={`border-l-2 ${s.border} bg-surface flex items-start justify-between gap-4 px-4 py-2.5`}
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-sm ${s.dim ? "text-muted/70" : "text-foreground"}`}>
+                    {stage.name}
+                  </span>
+                  {s.badge && (
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${s.badgeColor}`}>
+                      {s.badge}
+                    </span>
+                  )}
+                </div>
+                {stage.note && (
+                  <p className="mt-0.5 text-xs text-muted/60 leading-relaxed">{stage.note}</p>
+                )}
+              </div>
+              {stage.dims && (
+                <span className="shrink-0 font-mono text-xs text-muted pt-0.5">{stage.dims}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted/60">
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-0.5 rounded bg-zinc-400" /> input</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-0.5 rounded bg-amber-400" /> noise (stochastic)</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-0.5 rounded bg-zinc-600" /> frozen / pretrained</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-0.5 rounded bg-accent" /> trained weights</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-0.5 rounded bg-violet-500" /> merge</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-0.5 rounded bg-emerald-500" /> output</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Diffusion Model Panel
 // ---------------------------------------------------------------------------
 
@@ -1360,6 +1424,7 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
 
         {isDiffusion ? (
           <>
+            {variant.pipeline && <PipelineSection pipeline={variant.pipeline} />}
             <DiffusionPanel variant={variant} />
 
             <div className="mt-10">
