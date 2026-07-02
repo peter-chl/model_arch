@@ -1147,6 +1147,91 @@ function PipelineSection({ pipeline }: { pipeline: ModalityPipeline }) {
 }
 
 // ---------------------------------------------------------------------------
+// VAE Layer Breakdown
+// ---------------------------------------------------------------------------
+
+interface VaeStage { name: string; shape: string; note?: string; special?: "sample" | "mid" }
+
+function deriveVaeStages(d: DiffusionConfig): { encoder: VaeStage[]; decoder: VaeStage[] } {
+  const C = d.vae_latent_channels;
+  const S = d.vae_spatial_compression;
+  const Tp = d.vae_temporal_compression ?? 1;
+  const numS = Math.round(Math.log2(S));
+  const numT = Tp > 1 ? Math.round(Math.log2(Tp)) : 0;
+  const isVideo = numT > 0;
+
+  function tshape(tDiv: number) { return tDiv === 1 ? "T" : `T/${tDiv}`; }
+  function sshape(sDiv: number) { return sDiv === 1 ? "" : `/${sDiv}`; }
+  function frame(tDiv: number, sDiv: number) {
+    const t = isVideo ? `${tshape(tDiv)}, ` : "";
+    const x = sshape(sDiv);
+    return `[C, ${t}H${x}, W${x}]`;
+  }
+
+  const enc: VaeStage[] = [];
+  enc.push({ name: "Input Conv (3D causal)", shape: isVideo ? "[3, T, H, W] → [C, T, H, W]" : "[3, H, W] → [C, H, W]" });
+  for (let i = 1; i <= numS; i++)
+    enc.push({ name: `Spatial Down ${i} — ResNet × 2 + Stride-2 Conv`, shape: frame(1, 2 ** i) });
+  for (let i = 1; i <= numT; i++)
+    enc.push({ name: `Temporal Down ${i} — ResNet × 2 + Causal Stride-2`, shape: frame(2 ** i, S) });
+  enc.push({ name: "Mid — ResNet + Self-Attention + ResNet", shape: frame(Tp, S), special: "mid" });
+  enc.push({ name: "GroupNorm + Output Conv", shape: isVideo ? `[${C * 2}, ${tshape(Tp)}, H/${S}, W/${S}]` : `[${C * 2}, H/${S}, W/${S}]`, note: `${C} ch μ + ${C} ch log σ²` });
+  enc.push({ name: "Reparameterize — z = μ + ε·σ", shape: isVideo ? `[${C}, ${tshape(Tp)}, H/${S}, W/${S}]` : `[${C}, H/${S}, W/${S}]`, note: "KL(q(z|x) ‖ N(0,I)) regularization", special: "sample" });
+
+  const dec: VaeStage[] = [];
+  dec.push({ name: "Input Conv", shape: isVideo ? `[${C}, ${tshape(Tp)}, H/${S}, W/${S}] → [C, ...]` : `[${C}, H/${S}, W/${S}] → [C, ...]` });
+  dec.push({ name: "Mid — ResNet + Self-Attention + ResNet", shape: frame(Tp, S), special: "mid" });
+  for (let k = 1; k <= numT; k++)
+    dec.push({ name: `Temporal Up ${k} — ResNet × 3 + Interp + Conv`, shape: frame(Tp / (2 ** k), S) });
+  for (let k = 1; k <= numS; k++)
+    dec.push({ name: `Spatial Up ${k} — ResNet × 3 + Interp + Conv`, shape: frame(1, S / (2 ** k)) });
+  dec.push({ name: "GroupNorm + Output Conv", shape: isVideo ? "[3, T, H, W]" : "[3, H, W]" });
+
+  return { encoder: enc, decoder: dec };
+}
+
+function VaeLayerSection({ d }: { d: DiffusionConfig }) {
+  const [open, setOpen] = useState(false);
+  const { encoder, decoder } = deriveVaeStages(d);
+
+  function StageCard({ stage, border }: { stage: VaeStage; border: string }) {
+    const dim = stage.special === "sample" ? "text-amber-400/80" : stage.special === "mid" ? "text-violet-400/80" : "text-foreground/80";
+    return (
+      <div className={`border-l-2 ${border} bg-background/40 px-3 py-2`}>
+        <span className={`text-xs ${dim}`}>{stage.name}</span>
+        {stage.note && <span className="ml-2 font-mono text-[10px] text-muted/50">{stage.note}</span>}
+        <p className="font-mono text-[11px] text-muted/60 mt-0.5">{stage.shape}</p>
+      </div>
+    );
+  }
+
+  return (
+    <details className="mt-4 group" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted/70 hover:text-foreground transition-colors select-none">
+        {open ? "▾" : "▸"} VAE Encoder / Decoder Layers
+      </summary>
+      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-teal-400/80">Encoder</p>
+          <div className="space-y-px rounded-lg border border-border overflow-hidden">
+            {encoder.map((s, i) => <StageCard key={i} stage={s} border="border-l-teal-500/50" />)}
+          </div>
+        </div>
+        <div>
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-orange-400/80">Decoder</p>
+          <div className="space-y-px rounded-lg border border-border overflow-hidden">
+            {decoder.map((s, i) => <StageCard key={i} stage={s} border="border-l-orange-500/50" />)}
+          </div>
+        </div>
+      </div>
+      <p className="mt-2 text-[10px] text-muted/40">
+        C = internal channel width (implementation-specific, not published in paper). Shape annotations show compression ratios only. Stage order may differ from actual implementation.
+      </p>
+    </details>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Diffusion Model Panel
 // ---------------------------------------------------------------------------
 
@@ -1226,6 +1311,7 @@ function DiffusionPanel({ variant }: { variant: ModelVariant }) {
           Variational Autoencoder (VAE)
         </h3>
         <Grid entries={vaeEntries} color="border-border" />
+        <VaeLayerSection d={d} />
       </div>
 
       <div>
