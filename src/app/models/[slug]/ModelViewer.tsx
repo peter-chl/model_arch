@@ -1190,44 +1190,47 @@ function deriveVaeStages(d: DiffusionConfig): { encoder: VaeStage[]; decoder: Va
   return { encoder: enc, decoder: dec };
 }
 
-function VaeLayerSection({ d }: { d: DiffusionConfig }) {
-  const [open, setOpen] = useState(false);
-  const { encoder, decoder } = deriveVaeStages(d);
-
-  function StageCard({ stage, border }: { stage: VaeStage; border: string }) {
-    const dim = stage.special === "sample" ? "text-amber-400/80" : stage.special === "mid" ? "text-violet-400/80" : "text-foreground/80";
-    return (
-      <div className={`border-l-2 ${border} bg-background/40 px-3 py-2`}>
-        <span className={`text-xs ${dim}`}>{stage.name}</span>
-        {stage.note && <span className="ml-2 font-mono text-[10px] text-muted/50">{stage.note}</span>}
-        <p className="font-mono text-[11px] text-muted/60 mt-0.5">{stage.shape}</p>
-      </div>
-    );
-  }
-
+function VaeStageCard({ stage, border }: { stage: VaeStage; border: string }) {
+  const textColor =
+    stage.special === "sample" ? "text-amber-400/80" :
+    stage.special === "mid"    ? "text-violet-400/80" :
+    "text-foreground/80";
   return (
-    <details className="mt-4 group" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-muted/70 hover:text-foreground transition-colors select-none">
-        {open ? "▾" : "▸"} VAE Encoder / Decoder Layers
-      </summary>
-      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div className={`border-l-2 ${border} bg-background/40 px-3 py-2`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className={`text-xs ${textColor}`}>{stage.name}</span>
+        {stage.note && <span className="font-mono text-[10px] text-muted/50 shrink-0">{stage.note}</span>}
+      </div>
+      <p className="font-mono text-[11px] text-muted/60 mt-0.5">{stage.shape}</p>
+    </div>
+  );
+}
+
+function VaeLayerSection({ d }: { d: DiffusionConfig }) {
+  const { encoder, decoder } = deriveVaeStages(d);
+  return (
+    <div className="mt-4">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted/60">
+        Encoder / Decoder Stages
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-teal-400/80">Encoder</p>
           <div className="space-y-px rounded-lg border border-border overflow-hidden">
-            {encoder.map((s, i) => <StageCard key={i} stage={s} border="border-l-teal-500/50" />)}
+            {encoder.map((s, i) => <VaeStageCard key={i} stage={s} border="border-l-teal-500/50" />)}
           </div>
         </div>
         <div>
           <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-orange-400/80">Decoder</p>
           <div className="space-y-px rounded-lg border border-border overflow-hidden">
-            {decoder.map((s, i) => <StageCard key={i} stage={s} border="border-l-orange-500/50" />)}
+            {decoder.map((s, i) => <VaeStageCard key={i} stage={s} border="border-l-orange-500/50" />)}
           </div>
         </div>
       </div>
       <p className="mt-2 text-[10px] text-muted/40">
-        C = internal channel width (implementation-specific, not published in paper). Shape annotations show compression ratios only. Stage order may differ from actual implementation.
+        C = internal channel width (not published). Shape annotations show compression ratios only. Stage order may differ from actual implementation.
       </p>
-    </details>
+    </div>
   );
 }
 
