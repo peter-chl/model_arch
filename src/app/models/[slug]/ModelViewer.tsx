@@ -1159,33 +1159,84 @@ function deriveVaeStages(d: DiffusionConfig): { encoder: VaeStage[]; decoder: Va
   const numS = Math.round(Math.log2(S));
   const numT = Tp > 1 ? Math.round(Math.log2(Tp)) : 0;
   const isVideo = numT > 0;
+  // Temporal compression is applied only in the last numT stages (closest to bottleneck).
+  // Matches temperal_downsample=[False,True,True] for 3-stage encoder with 2 temporal stages.
+  const temporalStartStage = numS - numT;
 
   function tshape(tDiv: number) { return tDiv === 1 ? "T" : `T/${tDiv}`; }
   function sshape(sDiv: number) { return sDiv === 1 ? "" : `/${sDiv}`; }
-  function frame(tDiv: number, sDiv: number) {
+  function vidShape(tDiv: number, sDiv: number) {
     const t = isVideo ? `${tshape(tDiv)}, ` : "";
     const x = sshape(sDiv);
     return `[C, ${t}H${x}, W${x}]`;
   }
 
   const enc: VaeStage[] = [];
-  enc.push({ name: "Input Conv (3D causal)", shape: isVideo ? "[3, T, H, W] → [C, T, H, W]" : "[3, H, W] → [C, H, W]" });
-  for (let i = 1; i <= numS; i++)
-    enc.push({ name: `Spatial Down ${i} — ResNet × 2 + Stride-2 Conv`, shape: frame(1, 2 ** i) });
-  for (let i = 1; i <= numT; i++)
-    enc.push({ name: `Temporal Down ${i} — ResNet × 2 + Causal Stride-2`, shape: frame(2 ** i, S) });
-  enc.push({ name: "Mid — ResNet + Self-Attention + ResNet", shape: frame(Tp, S), special: "mid" });
-  enc.push({ name: "GroupNorm + Output Conv", shape: isVideo ? `[${C * 2}, ${tshape(Tp)}, H/${S}, W/${S}]` : `[${C * 2}, H/${S}, W/${S}]`, note: `${C} ch μ + ${C} ch log σ²` });
-  enc.push({ name: "Reparameterize — z = μ + ε·σ", shape: isVideo ? `[${C}, ${tshape(Tp)}, H/${S}, W/${S}]` : `[${C}, H/${S}, W/${S}]`, note: "KL(q(z|x) ‖ N(0,I)) regularization", special: "sample" });
+  enc.push({ name: "Input Conv (WanCausalConv3d)", shape: isVideo ? "[3, T, H, W] → [C, T, H, W]" : "[3, H, W] → [C, H, W]" });
+
+  let tDiv = 1;
+  for (let i = 0; i < numS; i++) {
+    const sDiv = 2 ** (i + 1);
+    const doTemporal = i >= temporalStartStage && isVideo;
+    if (doTemporal) tDiv *= 2;
+    enc.push({
+      name: `Stage ${i} — 2× WanResidualBlock + ${doTemporal ? "WanResample downsample3d" : "WanResample downsample2d"}`,
+      shape: vidShape(tDiv, sDiv),
+      note: doTemporal
+        ? "Spatial ×2 (stride-2 Conv2d) + temporal ×2 (stride-2 WanCausalConv3d)"
+        : "Spatial ×2 (stride-2 Conv2d) — no temporal change",
+    });
+  }
+
+  enc.push({
+    name: "WanMidBlock — WanResidualBlock + WanAttentionBlock + WanResidualBlock",
+    shape: vidShape(Tp, S),
+    note: "Attention is 2D per-frame (SDPA on spatial dims only, not 3D)",
+    special: "mid",
+  });
+  enc.push({
+    name: "WanRMSNorm + SiLU + Output Conv",
+    shape: isVideo ? `[${C * 2}, ${tshape(Tp)}, H/${S}, W/${S}]` : `[${C * 2}, H/${S}, W/${S}]`,
+    note: `${C} ch μ + ${C} ch log σ²`,
+  });
+  enc.push({
+    name: "Reparameterize — z = μ + ε·σ",
+    shape: isVideo ? `[${C}, ${tshape(Tp)}, H/${S}, W/${S}]` : `[${C}, H/${S}, W/${S}]`,
+    note: "KL(q(z|x) ‖ N(0,I)) regularization",
+    special: "sample",
+  });
 
   const dec: VaeStage[] = [];
-  dec.push({ name: "Input Conv", shape: isVideo ? `[${C}, ${tshape(Tp)}, H/${S}, W/${S}] → [C, ...]` : `[${C}, H/${S}, W/${S}] → [C, ...]` });
-  dec.push({ name: "Mid — ResNet + Self-Attention + ResNet", shape: frame(Tp, S), special: "mid" });
-  for (let k = 1; k <= numT; k++)
-    dec.push({ name: `Temporal Up ${k} — ResNet × 3 + Interp + Conv`, shape: frame(Tp / (2 ** k), S) });
-  for (let k = 1; k <= numS; k++)
-    dec.push({ name: `Spatial Up ${k} — ResNet × 3 + Interp + Conv`, shape: frame(1, S / (2 ** k)) });
-  dec.push({ name: "GroupNorm + Output Conv", shape: isVideo ? "[3, T, H, W]" : "[3, H, W]" });
+  dec.push({
+    name: "Input Conv (WanCausalConv3d)",
+    shape: isVideo ? `[${C}, ${tshape(Tp)}, H/${S}, W/${S}] → [C, ...]` : `[${C}, H/${S}, W/${S}] → [C, ...]`,
+  });
+  dec.push({
+    name: "WanMidBlock — WanResidualBlock + WanAttentionBlock + WanResidualBlock",
+    shape: vidShape(Tp, S),
+    note: "Attention is 2D per-frame (SDPA on spatial dims only, not 3D)",
+    special: "mid",
+  });
+
+  let tDivD = Tp;
+  let sDivD = S;
+  for (let i = 0; i < numS; i++) {
+    const doTemporal = i >= temporalStartStage && isVideo;
+    sDivD = Math.max(1, sDivD / 2);
+    if (doTemporal) tDivD = Math.max(1, tDivD / 2);
+    dec.push({
+      name: `Stage ${i} — 2× WanResidualBlock + ${doTemporal ? "WanResample upsample3d" : "WanResample upsample2d"}`,
+      shape: vidShape(tDivD, sDivD),
+      note: doTemporal
+        ? "Spatial ×2 (nearest-exact + Conv2d, ch /2) + temporal ×2 (WanCausalConv3d)"
+        : "Spatial ×2 (nearest-exact + Conv2d, ch /2) — no temporal change",
+    });
+  }
+
+  dec.push({
+    name: "WanRMSNorm + SiLU + Output Conv",
+    shape: isVideo ? "[3, T, H, W]" : "[3, H, W]",
+  });
 
   return { encoder: enc, decoder: dec };
 }
@@ -1228,7 +1279,7 @@ function VaeLayerSection({ d }: { d: DiffusionConfig }) {
         </div>
       </div>
       <p className="mt-2 text-[10px] text-muted/40">
-        C = internal channel width (not published). Shape annotations show compression ratios only. Stage order may differ from actual implementation.
+        C = internal channel width (Wan-VAE: base_dim=96, stages 96→192→384→384). Temporal compression is interleaved in the later stages, not sequential — based on diffusers autoencoder_kl_wan.py (temperal_downsample=[False,True,True]).
       </p>
     </div>
   );
