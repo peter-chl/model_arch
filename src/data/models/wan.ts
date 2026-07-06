@@ -41,7 +41,7 @@ function t2vPipelineStages(hidden: number, numBlocks: number, outputNote: string
       name: "Text Projection",
       role: "trained",
       dims: `[S, 4096] → [S, ${hidden.toLocaleString()}]`,
-      note: "Linear; maps T5 embeddings to DiT hidden dim, prepended to video token sequence",
+      note: "Linear; maps T5 embeddings to DiT hidden dim. Passed as cross-attention context (encoder_hidden_states) into each DiT block — not concatenated with video tokens",
     },
     {
       name: "Gaussian Noise Latent",
@@ -59,7 +59,7 @@ function t2vPipelineStages(hidden: number, numBlocks: number, outputNote: string
       name: "3D RoPE",
       role: "trained",
       dims: "per-axis frequencies for T, H, W",
-      note: "Applied inside each attention layer; no learned position parameters",
+      note: "Applied inside self-attention only; no learned position parameters",
     },
     {
       name: "Timestep MLP",
@@ -68,17 +68,17 @@ function t2vPipelineStages(hidden: number, numBlocks: number, outputNote: string
       note: "Sinusoidal embedding → Linear → SiLU → Linear; drives AdaLN-Zero in each DiT block",
     },
     {
-      name: `Full-Attention DiT × ${numBlocks}`,
+      name: `DiT × ${numBlocks} (self-attn + text cross-attn)`,
       role: "trained",
-      dims: `[S_text ⊕ N_video, ${hidden.toLocaleString()}]`,
-      note: "Text and video tokens in one joint sequence; full self-attention across both; AdaLN-Zero modulates each block's norms via timestep",
+      dims: `[N_video, ${hidden.toLocaleString()}]`,
+      note: "Each block: (1) self-attention on video tokens with 3D RoPE (attn1), (2) cross-attention where video tokens query text context (attn2), (3) SwiGLU FFN. AdaLN-Zero modulates norms via timestep",
     },
     { name: "Final RMSNorm", role: "trained" },
     {
       name: "Output Projection",
       role: "trained",
       dims: `[N_video, ${hidden.toLocaleString()}] → [16, T/4, H/8, W/8]`,
-      note: "Unpatchify video token positions only; predicts velocity field (flow matching)",
+      note: "Unpatchify; predicts velocity field (flow matching)",
     },
     VAE_DECODER_STAGE,
     { name: "Video Frames", role: "output", dims: outputNote },
@@ -111,7 +111,7 @@ function i2vPipelineStages(hidden: number, numBlocks: number, outputNote: string
       name: "Text Projection",
       role: "trained",
       dims: `[S, 4096] → [S, ${hidden.toLocaleString()}]`,
-      note: "Linear; prepended to video token sequence",
+      note: "Linear; maps T5 embeddings to DiT hidden dim. Passed as cross-attention context into each DiT block",
     },
     {
       name: "Patch Embedding",
@@ -123,7 +123,7 @@ function i2vPipelineStages(hidden: number, numBlocks: number, outputNote: string
       name: "3D RoPE",
       role: "trained",
       dims: "per-axis frequencies for T, H, W",
-      note: "Applied inside each attention layer",
+      note: "Applied inside self-attention only",
     },
     {
       name: "Timestep MLP",
@@ -132,10 +132,10 @@ function i2vPipelineStages(hidden: number, numBlocks: number, outputNote: string
       note: "Sinusoidal → Linear → SiLU → Linear; drives AdaLN-Zero",
     },
     {
-      name: `Full-Attention DiT × ${numBlocks}`,
+      name: `DiT × ${numBlocks} (self-attn + text cross-attn)`,
       role: "trained",
-      dims: `[S_text ⊕ N_video, ${hidden.toLocaleString()}]`,
-      note: "Same architecture as T2V; image conditioning enters via channel concat at input, not via attention",
+      dims: `[N_video, ${hidden.toLocaleString()}]`,
+      note: "Each block: (1) self-attention on video tokens with 3D RoPE, (2) cross-attention where video tokens query text context, (3) SwiGLU FFN. Image conditioning enters via channel concat at patch embedding, not via attention",
     },
     { name: "Final RMSNorm", role: "trained" },
     {
@@ -156,7 +156,7 @@ export const wan21: ModelFamily = {
   category: "video-gen",
   releaseDate: "2025-01",
   description:
-    "Open-source video diffusion model family with separate text-to-video (T2V) and image-to-video (I2V) models. Built on a full-attention DiT backbone with Wan-VAE, a 3D causal VAE providing 4× temporal and 8× spatial compression (256× total). Uses uT5-XXL for multilingual text conditioning. I2V models additionally accept a reference image encoded into the latent sequence.",
+    "Open-source video diffusion model family with separate text-to-video (T2V) and image-to-video (I2V) models. Built on a DiT backbone where each block applies self-attention over video tokens (with 3D RoPE) followed by cross-attention to uT5-XXL text context. Uses Wan-VAE, a 3D causal VAE providing 4× temporal and 8× spatial compression (256× total). I2V models condition on a reference image via channel concatenation at the patch embedding stage.",
   links: [
     { label: "Paper", url: "https://arxiv.org/abs/2503.20314" },
     { label: "GitHub", url: "https://github.com/Wan-Video/Wan2.1" },
@@ -167,7 +167,7 @@ export const wan21: ModelFamily = {
       name: "T2V-1.3B",
       totalParams: "1.3B",
       diffusion: {
-        architecture: "DiT (full attention)",
+        architecture: "DiT (self-attn + text cross-attn)",
         conditioning: "text",
         guidance: "Flow Matching",
         hidden_size: 1536,
@@ -191,7 +191,7 @@ export const wan21: ModelFamily = {
       name: "T2V-14B",
       totalParams: "14B",
       diffusion: {
-        architecture: "DiT (full attention)",
+        architecture: "DiT (self-attn + text cross-attn)",
         conditioning: "text",
         guidance: "Flow Matching",
         hidden_size: 5120,
@@ -215,7 +215,7 @@ export const wan21: ModelFamily = {
       name: "I2V-14B-480P",
       totalParams: "14B",
       diffusion: {
-        architecture: "DiT (full attention)",
+        architecture: "DiT (self-attn + text cross-attn)",
         conditioning: "text + image",
         guidance: "Flow Matching",
         hidden_size: 5120,
@@ -239,7 +239,7 @@ export const wan21: ModelFamily = {
       name: "I2V-14B-720P",
       totalParams: "14B",
       diffusion: {
-        architecture: "DiT (full attention)",
+        architecture: "DiT (self-attn + text cross-attn)",
         conditioning: "text + image",
         guidance: "Flow Matching",
         hidden_size: 5120,
@@ -322,6 +322,7 @@ export const wan22: ModelFamily = {
             name: "Text Projection",
             role: "trained",
             dims: "[S, 4096] → [S, 5120]",
+            note: "Maps T5 embeddings to DiT hidden dim; passed as cross-attention context into each block",
           },
           {
             name: "Patch Embedding",
@@ -333,6 +334,7 @@ export const wan22: ModelFamily = {
             name: "3D RoPE",
             role: "trained",
             dims: "per-axis frequencies for T, H, W",
+            note: "Applied inside self-attention only",
           },
           {
             name: "Timestep MLP",
@@ -343,8 +345,8 @@ export const wan22: ModelFamily = {
           {
             name: "MoE-DiT × 40 (27B total, 14B active)",
             role: "trained",
-            dims: "[S_text ⊕ N_video, 5120]",
-            note: "High-SNR timesteps → high-noise expert (layout); low-SNR → low-noise expert (detail); 1 expert active per step",
+            dims: "[N_video, 5120]",
+            note: "Each block: self-attention on video tokens with 3D RoPE, cross-attention to text context, MoE SwiGLU FFN. High-SNR timesteps → high-noise expert (layout); low-SNR → low-noise expert (detail)",
           },
           { name: "Final RMSNorm", role: "trained" },
           {
