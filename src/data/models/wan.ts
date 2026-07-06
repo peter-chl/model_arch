@@ -177,13 +177,13 @@ export const wan21: ModelFamily = {
         ffn_size: 8960,
         ...WAN_VAE,
         ...WAN21_TEXT_ENCODER,
-        max_resolution: "832×480",
+        max_resolution: "720P (480P / 832×480 recommended)",
         max_duration: "~4s @ 16fps",
         fps: 16,
       },
       pipeline: {
         name: "Text-to-Video",
-        stages: t2vPipelineStages(1536, 30, "up to ~4 s @ 16 fps, 832×480"),
+        stages: t2vPipelineStages(1536, 30, "480P recommended (832×480); 720P capable but less stable"),
       },
     },
     {
@@ -201,13 +201,13 @@ export const wan21: ModelFamily = {
         ffn_size: 13824,
         ...WAN_VAE,
         ...WAN21_TEXT_ENCODER,
-        max_resolution: "1280×720",
+        max_resolution: "1280×720 (480P and 720P supported)",
         max_duration: "~5s @ 24fps",
         fps: 24,
       },
       pipeline: {
         name: "Text-to-Video",
-        stages: t2vPipelineStages(5120, 40, "up to ~5 s @ 24 fps, 1280×720"),
+        stages: t2vPipelineStages(5120, 40, "480P or 720P (1280×720); up to ~5 s @ 24 fps"),
       },
     },
     {
