@@ -37,6 +37,7 @@ import { qwen35 } from "./qwen35";
 import { qwen36 } from "./qwen36";
 import { internvl25 } from "./internvl-2-5";
 import { qwen25vl } from "./qwen25-vl";
+import { qwen3vl } from "./qwen3-vl";
 import { wan21, wan22 } from "./wan";
 import { hunyuanVideo } from "./hunyuan-video";
 import { flux1 } from "./flux-1";
@@ -56,6 +57,7 @@ export const models: ModelFamily[] = [
   minimaxM1,
   llama4,
   qwen3,
+  qwen3vl,
   glm4,
   mimo,
   qwen25vl,
