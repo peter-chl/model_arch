@@ -1054,6 +1054,7 @@ function SubLayerRow({ sub }: { sub: SubLayerInfo }) {
 
 function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpanded?: boolean }) {
   const [open, setOpen] = useState(defaultExpanded ?? false);
+  const [calcOpen, setCalcOpen] = useState(false);
   const borderColor = layer.variant === "moe" ? MOE_BORDER : TYPE_COLORS[layer.type];
 
   return (
@@ -1069,8 +1070,44 @@ function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpande
             MoE
           </span>
         )}
-        <span className="font-mono text-xs text-muted">{formatParams(layer.params)}</span>
+        <span
+          onClick={(e) => { e.stopPropagation(); setCalcOpen(c => !c); }}
+          title="Click to see parameter breakdown"
+          className={`font-mono text-xs cursor-pointer transition-colors underline decoration-dotted underline-offset-2 ${
+            calcOpen
+              ? "text-accent decoration-accent"
+              : "text-muted decoration-muted/40 hover:text-accent hover:decoration-accent"
+          }`}
+        >
+          {formatParams(layer.params)}
+        </span>
       </button>
+
+      {calcOpen && (
+        <div className="border-t border-border bg-background/30 px-4 py-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted/60">
+            Parameter breakdown
+          </p>
+          <div className="space-y-1">
+            {layer.sublayers.map((sub, i) => (
+              <div key={i} className="flex items-baseline justify-between gap-4 text-xs">
+                <span className="shrink-0 text-foreground/70">{sub.name}</span>
+                <span className="hidden min-w-0 flex-1 truncate text-right font-mono text-muted/50 sm:block">
+                  {sub.dims}
+                </span>
+                <span className="shrink-0 font-mono font-medium text-foreground">
+                  {formatParams(sub.params)}
+                </span>
+              </div>
+            ))}
+            <div className="mt-1 flex items-baseline justify-between border-t border-border pt-1 text-xs">
+              <span className="font-semibold text-foreground/80">Total</span>
+              <span className="font-mono font-bold text-accent">{formatParams(layer.params)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {open && (
         <div className="border-t border-border bg-background/50 px-4 py-2 space-y-1">
           {layer.sublayers.map((sub, i) => (
