@@ -8,7 +8,7 @@ const WAN_VAE = {
 };
 
 const WAN21_TEXT_ENCODER = {
-  text_encoder: "uT5-XXL",
+  text_encoder: "UMT5-XXL",
   text_embed_dim: 4096,
 };
 
@@ -27,10 +27,10 @@ const VAE_DECODER_STAGE: PipelineStage = {
 };
 
 const UT5_STAGE: PipelineStage = {
-  name: "uT5-XXL Text Encoder",
+  name: "UMT5-XXL Text Encoder",
   role: "frozen",
   dims: "→ [S, 4096]",
-  note: "Multilingual T5-XXL (~11B params), frozen; supports Chinese + English",
+  note: "UMT5-XXL (~11B params), frozen; supports Chinese + English",
 };
 
 function t2vPipelineStages(hidden: number, numBlocks: number, outputNote: string): PipelineStage[] {
@@ -156,7 +156,7 @@ export const wan21: ModelFamily = {
   category: "video-gen",
   releaseDate: "2025-01",
   description:
-    "Open-source video diffusion model family with separate text-to-video (T2V) and image-to-video (I2V) models. Built on a DiT backbone where each block applies self-attention over video tokens (with 3D RoPE) followed by cross-attention to uT5-XXL text context. Uses Wan-VAE, a 3D causal VAE providing 4× temporal and 8× spatial compression (256× total). I2V models condition on a reference image via channel concatenation at the patch embedding stage.",
+    "Open-source video diffusion model family with separate text-to-video (T2V) and image-to-video (I2V) models. Built on a DiT backbone where each block applies self-attention over video tokens (with 3D RoPE) followed by cross-attention to UMT5-XXL text context; both attention operations use QK-Norm (RMS across heads). Uses Wan-VAE, a 3D causal VAE providing 4× temporal and 8× spatial compression (256× total). I2V models condition on a reference image via channel concatenation at the patch embedding stage.",
   links: [
     { label: "Paper", url: "https://arxiv.org/abs/2503.20314" },
     { label: "GitHub", url: "https://github.com/Wan-Video/Wan2.1" },
@@ -178,7 +178,7 @@ export const wan21: ModelFamily = {
         ...WAN_VAE,
         ...WAN21_TEXT_ENCODER,
         max_resolution: "720P (480P / 832×480 recommended)",
-        max_duration: "~4s @ 16fps",
+        max_duration: "~5s @ 16fps",
         fps: 16,
       },
       pipeline: {
@@ -202,12 +202,12 @@ export const wan21: ModelFamily = {
         ...WAN_VAE,
         ...WAN21_TEXT_ENCODER,
         max_resolution: "1280×720 (480P and 720P supported)",
-        max_duration: "~5s @ 24fps",
-        fps: 24,
+        max_duration: "~5s @ 16fps",
+        fps: 16,
       },
       pipeline: {
         name: "Text-to-Video",
-        stages: t2vPipelineStages(5120, 40, "480P or 720P (1280×720); up to ~5 s @ 24 fps"),
+        stages: t2vPipelineStages(5120, 40, "480P or 720P (1280×720); up to ~5 s @ 16 fps"),
       },
     },
     {
@@ -226,12 +226,12 @@ export const wan21: ModelFamily = {
         ...WAN_VAE,
         ...WAN21_TEXT_ENCODER,
         max_resolution: "832×480",
-        max_duration: "~5s @ 24fps",
-        fps: 24,
+        max_duration: "~5s @ 16fps",
+        fps: 16,
       },
       pipeline: {
         name: "Image-to-Video",
-        stages: i2vPipelineStages(5120, 40, "up to ~5 s @ 24 fps, 832×480"),
+        stages: i2vPipelineStages(5120, 40, "up to ~5 s @ 16 fps, 832×480"),
       },
     },
     {
@@ -250,12 +250,12 @@ export const wan21: ModelFamily = {
         ...WAN_VAE,
         ...WAN21_TEXT_ENCODER,
         max_resolution: "1280×720",
-        max_duration: "~5s @ 24fps",
-        fps: 24,
+        max_duration: "~5s @ 16fps",
+        fps: 16,
       },
       pipeline: {
         name: "Image-to-Video",
-        stages: i2vPipelineStages(5120, 40, "up to ~5 s @ 24 fps, 1280×720"),
+        stages: i2vPipelineStages(5120, 40, "up to ~5 s @ 16 fps, 1280×720"),
       },
     },
   ],
