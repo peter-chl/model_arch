@@ -1052,7 +1052,7 @@ function SubLayerRow({ sub }: { sub: SubLayerInfo }) {
   );
 }
 
-function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpanded?: boolean }) {
+function LayerRow({ layer, cumulative, defaultExpanded }: { layer: LayerInfo; cumulative?: number; defaultExpanded?: boolean }) {
   const [open, setOpen] = useState(defaultExpanded ?? false);
   const [calcOpen, setCalcOpen] = useState(false);
   const borderColor = layer.variant === "moe" ? MOE_BORDER : TYPE_COLORS[layer.type];
@@ -1070,17 +1070,24 @@ function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpande
             MoE
           </span>
         )}
-        <span
-          onClick={(e) => { e.stopPropagation(); setCalcOpen(c => !c); }}
-          title="Click to see parameter breakdown"
-          className={`font-mono text-xs cursor-pointer transition-colors underline decoration-dotted underline-offset-2 ${
-            calcOpen
-              ? "text-accent decoration-accent"
-              : "text-muted decoration-muted/40 hover:text-accent hover:decoration-accent"
-          }`}
-        >
-          {formatParams(layer.params)}
-        </span>
+        <div className="flex flex-col items-end gap-0.5">
+          <span
+            onClick={(e) => { e.stopPropagation(); setCalcOpen(c => !c); }}
+            title="Click to see parameter breakdown"
+            className={`font-mono text-xs cursor-pointer transition-colors underline decoration-dotted underline-offset-2 ${
+              calcOpen
+                ? "text-accent decoration-accent"
+                : "text-muted decoration-muted/40 hover:text-accent hover:decoration-accent"
+            }`}
+          >
+            {formatParams(layer.params)}
+          </span>
+          {cumulative !== undefined && (
+            <span className="font-mono text-[10px] leading-none text-muted/40">
+              ∑ {formatParams(cumulative)}
+            </span>
+          )}
+        </div>
       </button>
 
       {calcOpen && (
@@ -1101,9 +1108,15 @@ function LayerRow({ layer, defaultExpanded }: { layer: LayerInfo; defaultExpande
               </div>
             ))}
             <div className="mt-1 flex items-baseline justify-between border-t border-border pt-1 text-xs">
-              <span className="font-semibold text-foreground/80">Total</span>
+              <span className="font-semibold text-foreground/80">This module</span>
               <span className="font-mono font-bold text-accent">{formatParams(layer.params)}</span>
             </div>
+            {cumulative !== undefined && (
+              <div className="flex items-baseline justify-between text-xs mt-0.5">
+                <span className="text-muted/60">Cumulative (up to here)</span>
+                <span className="font-mono font-medium text-muted">{formatParams(cumulative)}</span>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1506,8 +1519,10 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
   const isDiffusion = !!variant.diffusion;
   const layers = config ? generateLayers(config) : [];
   const totalParams = layers.reduce((s, l) => s + l.params, 0);
+  const layerCumulatives = layers.reduce<number[]>((acc, l) => { acc.push((acc[acc.length - 1] ?? 0) + l.params); return acc; }, []);
   const diffusionLayers = variant.diffusion ? generateDiffusionLayers(variant.diffusion) : [];
   const diffusionBackboneParams = diffusionLayers.reduce((s, l) => s + l.params, 0);
+  const diffusionCumulatives = diffusionLayers.reduce<number[]>((acc, l) => { acc.push((acc[acc.length - 1] ?? 0) + l.params); return acc; }, []);
 
   const configEntries: string[][] = config ? [
     ["Vocab size", formatNumber(config.vocab_size)],
@@ -1631,10 +1646,11 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
               </div>
 
               <div className="space-y-px rounded-lg border border-border overflow-hidden">
-                {diffusionLayers.map((layer) => (
+                {diffusionLayers.map((layer, i) => (
                   <LayerRow
                     key={`${variant.id}-diff-${layer.index}`}
                     layer={layer}
+                    cumulative={diffusionCumulatives[i]}
                     defaultExpanded={layer.type === "embedding" || layer.type === "head"}
                   />
                 ))}
@@ -1716,10 +1732,11 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
             </div>
 
             <div className="space-y-px rounded-lg border border-border overflow-hidden">
-              {layers.map((layer) => (
+              {layers.map((layer, i) => (
                 <LayerRow
                   key={`${variant.id}-${layer.index}`}
                   layer={layer}
+                  cumulative={layerCumulatives[i]}
                   defaultExpanded={layer.type === "embedding" || layer.type === "head"}
                 />
               ))}
