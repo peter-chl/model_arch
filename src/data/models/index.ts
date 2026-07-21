@@ -28,6 +28,7 @@ import { qwen3 } from "./qwen-3";
 import { deepseekR1 } from "./deepseek-r1";
 import { kimiK2 } from "./kimi-k2";
 import { kimiK25 } from "./kimi-k2-5";
+import { kimiK3 } from "./kimi-k3";
 import { minimaxM1 } from "./minimax-m1";
 import { glm4 } from "./glm-4";
 import { glm5 } from "./glm-5";
@@ -47,6 +48,7 @@ import { cogVideoX } from "./cogvideox";
 
 export const models: ModelFamily[] = [
   // 2026
+  kimiK3,
   minimaxM3,
   gemma4,
   deepseekV4,
