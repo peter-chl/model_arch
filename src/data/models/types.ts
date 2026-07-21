@@ -64,6 +64,8 @@ export interface DiffusionConfig {
   vae_latent_channels: number;
   vae_spatial_compression: number;
   vae_temporal_compression?: number;
+  has_cross_attn?: boolean;
+  ffn_activation?: string;
   text_encoder: string;
   text_embed_dim: number;
   max_resolution: string;

@@ -899,13 +899,35 @@ function generateDiffusionLayers(d: DiffusionConfig): LayerInfo[] {
     }
   } else {
     // Standard DiT: Wan, CogVideoX
-    const ffnComp: ComponentType = d.ffn_size ? "swiglu" : "geglu";
+    const ffnComp: ComponentType =
+      d.ffn_activation === "GELU" ? "gelu_ffn" : d.ffn_size ? "swiglu" : "geglu";
     const isMoE = !!(d.num_experts && d.num_experts > 1);
     const nExperts = d.num_experts ?? 1;
     const activeExperts = d.active_experts ?? 1;
 
+    const makeCrossAttn = (): SubLayerInfo => {
+      const qP = H * nH * dH;
+      const kP = H * nH * dH;
+      const vP = H * nH * dH;
+      const oP = nH * dH * H;
+      return {
+        name: `Cross-Attention to text (${nH}h × dim ${dH})`,
+        component: "mha",
+        dims: `Q:[${H}→${nH * dH}] K/V (text):[${H}→${nH * dH}] O:[${nH * dH}→${H}]`,
+        params: qP + kP + vP + oP,
+        paramBreakdown: [
+          { label: "W_q (video queries)", formula: fmul(H, nH * dH), value: qP },
+          { label: "W_k (text keys)", formula: fmul(H, nH * dH), value: kP },
+          { label: "W_v (text values)", formula: fmul(H, nH * dH), value: vP },
+          { label: "W_o", formula: fmul(nH * dH, H), value: oP },
+        ],
+      };
+    };
+
     for (let i = 0; i < d.num_layers; i++) {
       const attn = makeAttn("Self-Attention");
+      const crossAttn = d.has_cross_attn ? makeCrossAttn() : null;
+      const crossAttnP = crossAttn ? crossAttn.params : 0;
       let ffnSublayer: SubLayerInfo;
       let ffnP: number;
 
@@ -931,19 +953,26 @@ function generateDiffusionLayers(d: DiffusionConfig): LayerInfo[] {
           ],
         };
       } else {
-        const ffn = makeFFN(ffnComp === "swiglu" ? "SwiGLU FFN" : "GeGLU FFN", ffnComp);
+        const ffnLabel = ffnComp === "gelu_ffn" ? "GELU FFN" : ffnComp === "swiglu" ? "SwiGLU FFN" : "GeGLU FFN";
+        const ffn = makeFFN(ffnLabel, ffnComp);
         ffnSublayer = ffn;
         ffnP = ffn.params;
       }
 
-      const blockP = H * 2 + attn.params + ffnP;
+      const blockP = H * 2 + attn.params + crossAttnP + ffnP;
       layers.push({
         index: idx++,
         name: `DiT Block ${i}`,
         type: "transformer",
         variant: isMoE ? "moe" : "dense",
         params: blockP,
-        sublayers: [makeNorm("RMSNorm (pre-attn)"), attn, makeNorm("RMSNorm (pre-FFN)"), ffnSublayer],
+        sublayers: [
+          makeNorm("RMSNorm (pre-attn)"),
+          attn,
+          ...(crossAttn ? [crossAttn] : []),
+          makeNorm("RMSNorm (pre-FFN)"),
+          ffnSublayer,
+        ],
       });
     }
   }
