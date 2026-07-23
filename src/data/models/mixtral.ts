@@ -4,12 +4,15 @@ export const mixtral: ModelFamily = {
   slug: "mixtral",
   name: "Mistral / Mixtral",
   org: "Mistral AI",
+  category: "llm",
   releaseDate: "2023-09",
   description:
-    "Sparse MoE transformer with top-2 expert routing, sliding-window attention (Mistral 7B), and shared GQA design.",
+    "Family of dense and sparse-MoE decoder models. Mistral 7B introduced GQA and sliding-window attention (window=4096) for efficient long-context inference. Mixtral 8×7B and 8×22B replace each dense FFN with 8 experts routed top-2, keeping 12.9B and 39.1B active parameters respectively while scaling total capacity to 46.7B and 140.6B.",
   links: [
-    { label: "Paper", url: "https://arxiv.org/abs/2401.04088" },
-    { label: "HuggingFace", url: "https://huggingface.co/mistralai/Mixtral-8x7B-v0.1" },
+    { label: "Mistral 7B Paper", url: "https://arxiv.org/abs/2310.06825" },
+    { label: "Mixtral Paper", url: "https://arxiv.org/abs/2401.04088" },
+    { label: "Mixtral 8×7B", url: "https://huggingface.co/mistralai/Mixtral-8x7B-v0.1" },
+    { label: "Mixtral 8×22B", url: "https://huggingface.co/mistralai/Mixtral-8x22B-v0.1" },
   ],
   variants: [
     {
