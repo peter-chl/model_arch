@@ -4,6 +4,7 @@ export const phi4: ModelFamily = {
   slug: "phi-4",
   name: "Phi-4",
   org: "Microsoft",
+  category: "llm",
   releaseDate: "2024-12",
   description:
     "Dense decoder-only transformer trained on a synthetic-data-heavy mix with pivotal token search for DPO alignment.",
@@ -15,7 +16,7 @@ export const phi4: ModelFamily = {
     {
       id: "14b",
       name: "14B",
-      totalParams: "14.0B",
+      totalParams: "14.7B",
       config: {
         vocab_size: 100352,
         hidden_size: 5120,
@@ -25,7 +26,7 @@ export const phi4: ModelFamily = {
         head_dim: 128,
         intermediate_size: 17920,
         max_seq_len: 16384,
-        norm: "LayerNorm",
+        norm: "RMSNorm",
         activation: "SwiGLU",
         pos_encoding: "RoPE",
         tie_embeddings: false,
