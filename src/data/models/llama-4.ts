@@ -7,10 +7,11 @@ export const llama4: ModelFamily = {
   category: "llm",
   releaseDate: "2025-04",
   description:
-    "Meta's first MoE architecture with natively multimodal early fusion. Scout uses full MoE across all layers; Maverick alternates dense and MoE layers with 128 experts.",
+    "Meta's first MoE architecture with natively multimodal early fusion, using iRoPE (RoPE on 3 of every 4 layers; NoPE with chunked attention on the 4th). Each MoE layer has 1 always-active shared expert plus top-1 routing to routed experts. Scout uses full MoE across all 48 layers; Maverick alternates dense and MoE layers (every other layer) with 128 routed experts.",
   links: [
     { label: "HuggingFace", url: "https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct" },
     { label: "Blog", url: "https://ai.meta.com/blog/llama-4-multimodal-intelligence/" },
+    { label: "GitHub", url: "https://github.com/meta-llama/llama-models" },
   ],
   variants: [
     {
@@ -25,15 +26,15 @@ export const llama4: ModelFamily = {
         num_attention_heads: 40,
         num_kv_heads: 8,
         head_dim: 128,
-        intermediate_size: 16384,
+        intermediate_size: 8192,
         max_seq_len: 10485760,
         norm: "RMSNorm",
         activation: "SwiGLU",
-        pos_encoding: "RoPE",
+        pos_encoding: "iRoPE",
         tie_embeddings: false,
         moe: {
           num_experts: 16,
-          shared_experts: 0,
+          shared_experts: 1,
           top_k: 1,
           expert_intermediate_size: 8192,
           first_moe_layer: 0,
@@ -56,11 +57,11 @@ export const llama4: ModelFamily = {
         max_seq_len: 1048576,
         norm: "RMSNorm",
         activation: "SwiGLU",
-        pos_encoding: "RoPE",
+        pos_encoding: "iRoPE",
         tie_embeddings: false,
         moe: {
           num_experts: 128,
-          shared_experts: 0,
+          shared_experts: 1,
           top_k: 1,
           expert_intermediate_size: 8192,
           first_moe_layer: 0,
