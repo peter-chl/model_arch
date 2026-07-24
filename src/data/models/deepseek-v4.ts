@@ -4,6 +4,7 @@ export const deepseekV4: ModelFamily = {
   slug: "deepseek-v4",
   name: "DeepSeek-V4",
   org: "DeepSeek",
+  category: "llm",
   releaseDate: "2026-04",
   description:
     "Next-generation MoE model with hybrid Compressed Sparse Attention (CSA) and Heavily Compressed Attention (HCA) replacing standard MLA, Manifold-Constrained Hyper-Connections (mHC), and Muon optimizer. Supports 1M-token context with 27% of V3's inference FLOPs and 10% of KV cache.",

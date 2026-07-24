@@ -4,6 +4,7 @@ export const glm4: ModelFamily = {
   slug: "glm-4",
   name: "GLM-4",
   org: "Zhipu AI",
+  category: "llm",
   releaseDate: "2025-04",
   description:
     "Dense decoder-only transformer with deep GQA (2 KV heads), SwiGLU activation, and RMSNorm. Pre-trained on 15T tokens including substantial reasoning-type synthetic data.",

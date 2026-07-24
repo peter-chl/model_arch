@@ -4,6 +4,7 @@ export const kimiK25: ModelFamily = {
   slug: "kimi-k2-5",
   name: "Kimi K2.5",
   org: "Moonshot AI",
+  category: "llm",
   releaseDate: "2026-01",
   description:
     "Native multimodal evolution of Kimi K2 with MoonViT-3D vision encoder and Agent Swarm Mode for coordinating up to 100 parallel sub-agents. Same 1T MoE backbone (MLA + 384 experts) with extended 256K context.",

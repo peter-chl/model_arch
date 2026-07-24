@@ -4,6 +4,7 @@ export const qwen3: ModelFamily = {
   slug: "qwen-3",
   name: "Qwen 3",
   org: "Alibaba",
+  category: "llm",
   releaseDate: "2025-04",
   description:
     "Third-generation Qwen series with dense and MoE variants. Features thinking/non-thinking mode switching, YaRN-extended RoPE, and 128-expert sparse routing in the MoE variant.",

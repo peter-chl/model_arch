@@ -4,6 +4,7 @@ export const deepseekV3: ModelFamily = {
   slug: "deepseek-v3",
   name: "DeepSeek-V3",
   org: "DeepSeek",
+  category: "llm",
   releaseDate: "2024-12",
   description:
     "MoE transformer with Multi-head Latent Attention (MLA) for KV compression, 256 routed experts with auxiliary-loss-free load balancing, and FP8 training.",

@@ -4,6 +4,7 @@ export const llama4: ModelFamily = {
   slug: "llama-4",
   name: "Llama 4",
   org: "Meta",
+  category: "llm",
   releaseDate: "2025-04",
   description:
     "Meta's first MoE architecture with natively multimodal early fusion. Scout uses full MoE across all layers; Maverick alternates dense and MoE layers with 128 experts.",

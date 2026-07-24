@@ -4,6 +4,7 @@ export const glm5: ModelFamily = {
   slug: "glm-5",
   name: "GLM-5",
   org: "Zhipu AI",
+  category: "llm",
   releaseDate: "2026-02",
   description:
     "Large-scale MoE model with Multi-head Latent Attention (MLA), DeepSeek Sparse Attention (DSA) with IndexShare, and 256 routed experts. Trained on 28.5T tokens on Huawei Ascend chips, focused on agentic coding and long-horizon planning.",
