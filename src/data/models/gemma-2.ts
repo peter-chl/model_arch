@@ -14,6 +14,25 @@ export const gemma2: ModelFamily = {
   ],
   variants: [
     {
+      id: "2b",
+      name: "2B",
+      totalParams: "2.61B",
+      config: {
+        vocab_size: 256000,
+        hidden_size: 2304,
+        num_layers: 26,
+        num_attention_heads: 8,
+        num_kv_heads: 4,
+        head_dim: 256,
+        intermediate_size: 9216,
+        max_seq_len: 8192,
+        norm: "RMSNorm",
+        activation: "GeGLU",
+        pos_encoding: "RoPE",
+        tie_embeddings: true,
+      },
+    },
+    {
       id: "9b",
       name: "9B",
       totalParams: "9.24B",
