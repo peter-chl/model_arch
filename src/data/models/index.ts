@@ -44,6 +44,7 @@ import { qwen3vl } from "./qwen3-vl";
 import { wan21, wan22 } from "./wan";
 import { hunyuanVideo } from "./hunyuan-video";
 import { flux1 } from "./flux-1";
+import { sd3 } from "./stable-diffusion-3";
 import { cogVideoX } from "./cogvideox";
 
 export const models: ModelFamily[] = [
@@ -77,6 +78,7 @@ export const models: ModelFamily[] = [
   qwen25,
   internvl25,
   flux1,
+  sd3,
   gemma2,
   llama3,
   // 2023
