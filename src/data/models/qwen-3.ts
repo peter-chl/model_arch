@@ -7,8 +7,9 @@ export const qwen3: ModelFamily = {
   category: "llm",
   releaseDate: "2025-04",
   description:
-    "Third-generation Qwen series with dense and MoE variants. Features thinking/non-thinking mode switching, YaRN-extended RoPE, and 128-expert sparse routing in the MoE variant.",
+    "Third-generation Qwen series with dense and MoE variants. Introduces QK-Norm: per-head RMSNorm applied to query and key vectors before attention, stabilizing training at scale. Dense models use GQA with head_dim=128 decoupled from hidden_size (Q/K/V projections expand to num_heads×128, which exceeds hidden_size in larger variants). The 235B-A22B MoE routes over 128 experts with 8 active per token across all 94 layers (no dense-FFN bypass layers). Context extended to 128K tokens via YaRN. All variants support switching between thinking (chain-of-thought) and non-thinking modes at inference time.",
   links: [
+    { label: "Paper", url: "https://arxiv.org/abs/2505.09388" },
     { label: "HuggingFace", url: "https://huggingface.co/Qwen/Qwen3-235B-A22B" },
     { label: "GitHub", url: "https://github.com/QwenLM/Qwen3" },
     { label: "Blog", url: "https://qwenlm.github.io/blog/qwen3/" },
