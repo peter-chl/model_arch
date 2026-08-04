@@ -34,6 +34,7 @@ import { glm4 } from "./glm-4";
 import { glm5 } from "./glm-5";
 import { minimaxM3 } from "./minimax-m3";
 import { gemma4 } from "./gemma-4";
+import { qwen38max } from "./qwen38max";
 import { mimo } from "./mimo";
 import { qwen3Next } from "./qwen3-next";
 import { qwen35 } from "./qwen35";
@@ -49,6 +50,7 @@ import { cogVideoX } from "./cogvideox";
 
 export const models: ModelFamily[] = [
   // 2026
+  qwen38max,
   kimiK3,
   minimaxM3,
   gemma4,
