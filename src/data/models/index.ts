@@ -47,10 +47,12 @@ import { hunyuanVideo } from "./hunyuan-video";
 import { flux1 } from "./flux-1";
 import { sd3 } from "./stable-diffusion-3";
 import { cogVideoX } from "./cogvideox";
+import { mossVL } from "./moss-vl";
 
 export const models: ModelFamily[] = [
   // 2026
   qwen38max,
+  mossVL,
   kimiK3,
   minimaxM3,
   gemma4,
