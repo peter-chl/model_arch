@@ -48,9 +48,11 @@ import { flux1 } from "./flux-1";
 import { sd3 } from "./stable-diffusion-3";
 import { cogVideoX } from "./cogvideox";
 import { mossVL } from "./moss-vl";
+import { minimaxH3 } from "./minimax-h3";
 
 export const models: ModelFamily[] = [
   // 2026
+  minimaxH3,
   qwen38max,
   mossVL,
   kimiK3,
