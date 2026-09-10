@@ -15,9 +15,23 @@ export async function generateMetadata({
   const { slug } = await params;
   const model = getModelBySlug(slug);
   if (!model) return { title: "Not Found" };
+  const title = `${model.name} Architecture`;
+  const ogImage = `/og/${slug}.png`;
   return {
-    title: `${model.name} Architecture — model_arch`,
+    title,
     description: model.description,
+    openGraph: {
+      title,
+      description: model.description,
+      type: "article",
+      images: [{ url: ogImage, width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description: model.description,
+      images: [ogImage],
+    },
   };
 }
 
