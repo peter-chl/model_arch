@@ -21,6 +21,7 @@ import { mixtral } from "./mixtral";
 import { qwen25 } from "./qwen-25";
 import { deepseekV3 } from "./deepseek-v3";
 import { deepseekV4 } from "./deepseek-v4";
+import { deepseekV41Flash } from "./deepseek-v4-1";
 import { gemma2 } from "./gemma-2";
 import { phi4 } from "./phi-4";
 import { llama4 } from "./llama-4";
@@ -52,6 +53,7 @@ import { minimaxH3 } from "./minimax-h3";
 
 export const models: ModelFamily[] = [
   // 2026
+  deepseekV41Flash,
   minimaxH3,
   qwen38max,
   mossVL,
