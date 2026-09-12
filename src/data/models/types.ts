@@ -73,6 +73,21 @@ export interface DiffusionConfig {
   fps?: number;
 }
 
+export interface VLAConfig {
+  vision_encoder: string;
+  vlm_backbone: string;
+  vlm_hidden_size: number;
+  vlm_num_layers: number;
+  action_head: string;
+  action_head_type: "flow_matching" | "autoregressive" | "diffusion";
+  action_head_hidden_size?: number;
+  action_head_num_layers?: number;
+  action_chunk_size: number;
+  action_dim?: number;
+  proprioception_dim?: number;
+  training_data?: string;
+}
+
 export interface ModelVariant {
   id: string;
   name: string;
@@ -81,6 +96,7 @@ export interface ModelVariant {
   config?: ModelConfig;
   vision_encoder?: VisionEncoderConfig;
   diffusion?: DiffusionConfig;
+  vla?: VLAConfig;
   pipeline?: ModalityPipeline;
 }
 
@@ -109,7 +125,7 @@ export interface ModelLink {
   url: string;
 }
 
-export type ModelCategory = "llm" | "vlm" | "image-gen" | "video-gen";
+export type ModelCategory = "llm" | "vlm" | "image-gen" | "video-gen" | "vla";
 
 export interface VisionEncoderConfig {
   type: string;

@@ -28,6 +28,8 @@ function ModelCard({ model }: { model: ModelFamily }) {
                     ? "bg-teal-500/10 text-teal-400"
                     : category === "image-gen"
                     ? "bg-purple-500/10 text-purple-400"
+                    : category === "vla"
+                    ? "bg-indigo-500/10 text-indigo-400"
                     : "bg-orange-500/10 text-orange-400"
                 }`}>
                   {CATEGORY_LABELS[category]}
@@ -74,6 +76,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   vlm: "VLM",
   "image-gen": "Image Gen",
   "video-gen": "Video Gen",
+  vla: "VLA",
 };
 
 interface ModelGridProps {
@@ -96,6 +99,7 @@ export default function ModelGrid({ models }: ModelGridProps) {
     { key: "vlm", label: `VLM (${countCat("vlm")})` },
     { key: "image-gen", label: `Image Gen (${countCat("image-gen")})` },
     { key: "video-gen", label: `Video Gen (${countCat("video-gen")})` },
+    { key: "vla", label: `VLA (${countCat("vla")})` },
   ];
 
   return (

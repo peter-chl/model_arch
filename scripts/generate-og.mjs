@@ -48,6 +48,7 @@ function categoryLabel(cat) {
     case "vlm": return "Vision LM";
     case "image-gen": return "Image Generation";
     case "video-gen": return "Video Generation";
+    case "vla": return "Vision-Language-Action";
     default: return cat.toUpperCase();
   }
 }
@@ -65,6 +66,17 @@ function formatContext(maxSeqLen) {
 function getStats(model, variant) {
   const c = variant.config;
   const d = variant.diffusion;
+  const v = variant.vla;
+
+  if (v) {
+    const headTypeLabel = { flow_matching: "Flow Matching", autoregressive: "Autoregressive", diffusion: "Diffusion" };
+    return [
+      { label: "Parameters", value: variant.totalParams, sub: "" },
+      { label: "VLM Backbone", value: `${v.vlm_num_layers}L × ${v.vlm_hidden_size}`, sub: "" },
+      { label: "Action Head", value: headTypeLabel[v.action_head_type] ?? v.action_head_type, sub: "" },
+      { label: "Action Chunk H", value: String(v.action_chunk_size), sub: v.proprioception_dim ? `prop ${v.proprioception_dim}D` : "" },
+    ];
+  }
 
   if (d) {
     return [

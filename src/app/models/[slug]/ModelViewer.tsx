@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink, VisionEncoderConfig, DiffusionConfig, ModelVariant, ModalityPipeline, PipelineStageRole } from "@/data/models";
+import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink, VisionEncoderConfig, DiffusionConfig, VLAConfig, ModelVariant, ModalityPipeline, PipelineStageRole } from "@/data/models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1458,6 +1458,84 @@ function DiffusionPanel({ variant }: { variant: ModelVariant }) {
 }
 
 // ---------------------------------------------------------------------------
+// VLA Panel
+// ---------------------------------------------------------------------------
+
+function VLAPanel({ variant }: { variant: ModelVariant }) {
+  const vla = variant.vla!;
+
+  const ACTION_HEAD_LABELS: Record<string, string> = {
+    flow_matching: "Flow Matching",
+    autoregressive: "Autoregressive",
+    diffusion: "Diffusion",
+  };
+
+  const backboneEntries: [string, string][] = [
+    ["Vision encoder", vla.vision_encoder],
+    ["VLM backbone", vla.vlm_backbone],
+    ["Hidden dim", vla.vlm_hidden_size.toLocaleString()],
+    ["Backbone layers", vla.vlm_num_layers.toString()],
+  ];
+
+  const actionEntries: [string, string][] = [
+    ["Action head", vla.action_head],
+    ["Head type", ACTION_HEAD_LABELS[vla.action_head_type] ?? vla.action_head_type],
+    ["Action chunk H", vla.action_chunk_size.toString()],
+    ...(vla.action_head_hidden_size ? [["Head hidden dim", vla.action_head_hidden_size.toLocaleString()] as [string, string]] : []),
+    ...(vla.action_head_num_layers ? [["Head layers", vla.action_head_num_layers.toString()] as [string, string]] : []),
+    ...(vla.action_dim ? [["Action dim", vla.action_dim.toString()] as [string, string]] : []),
+    ...(vla.proprioception_dim ? [["Proprioception dim", vla.proprioception_dim.toString()] as [string, string]] : []),
+  ];
+
+  function Grid({ entries }: { entries: [string, string][] }) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {entries.map(([label, value]) => (
+          <div key={label} className="rounded border border-border bg-background/50 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted">{label}</p>
+            <p className="font-mono text-xs text-foreground break-words">{value}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="mb-6 flex flex-wrap gap-4">
+        <div className="rounded-lg border border-border bg-surface px-4 py-3">
+          <p className="text-xs text-muted">Total Parameters</p>
+          <p className="text-xl font-bold font-mono text-foreground">{variant.totalParams}</p>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">
+          VLM Backbone
+        </h3>
+        <Grid entries={backboneEntries} />
+      </div>
+
+      <div>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">
+          Action Head
+        </h3>
+        <Grid entries={actionEntries} />
+      </div>
+
+      {vla.training_data && (
+        <div>
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">
+            Training Data
+          </h3>
+          <p className="text-sm text-muted">{vla.training_data}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Vision Encoder Panel
 // ---------------------------------------------------------------------------
 
@@ -1546,6 +1624,7 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
   const variant = model.variants[variantIdx];
   const config = variant.config;
   const isDiffusion = !!variant.diffusion;
+  const isVLA = !!variant.vla;
   const layers = config ? generateLayers(config) : [];
   const totalParams = layers.reduce((s, l) => s + l.params, 0);
   const layerCumulatives = layers.reduce<number[]>((acc, l) => { acc.push((acc[acc.length - 1] ?? 0) + l.params); return acc; }, []);
@@ -1643,7 +1722,12 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
           </div>
         )}
 
-        {isDiffusion ? (
+        {isVLA ? (
+          <>
+            {variant.pipeline && <PipelineSection pipeline={variant.pipeline} />}
+            <VLAPanel variant={variant} />
+          </>
+        ) : isDiffusion ? (
           <>
             {variant.pipeline && <PipelineSection pipeline={variant.pipeline} />}
             <DiffusionPanel variant={variant} />

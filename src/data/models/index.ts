@@ -5,6 +5,7 @@ export type {
   DeltaNetConfig,
   ModelConfig,
   DiffusionConfig,
+  VLAConfig,
   ModelVariant,
   ModelLink,
   ModelFamily,
@@ -50,6 +51,8 @@ import { sd3 } from "./stable-diffusion-3";
 import { cogVideoX } from "./cogvideox";
 import { mossVL } from "./moss-vl";
 import { minimaxH3 } from "./minimax-h3";
+import { pi0 } from "./pi-0";
+import { pi05 } from "./pi-0-5";
 
 export const models: ModelFamily[] = [
   // 2026
@@ -78,7 +81,9 @@ export const models: ModelFamily[] = [
   qwen25vl,
   wan21,
   deepseekR1,
+  pi05,
   // 2024
+  pi0,
   deepseekV3,
   phi4,
   hunyuanVideo,
