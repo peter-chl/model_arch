@@ -1472,9 +1472,9 @@ function VLAPanel({ variant }: { variant: ModelVariant }) {
 
   const backboneEntries: [string, string][] = [
     ["Vision encoder", vla.vision_encoder],
-    ["VLM backbone", vla.vlm_backbone],
-    ["Hidden dim", vla.vlm_hidden_size.toLocaleString()],
-    ["Backbone layers", vla.vlm_num_layers.toString()],
+    ["Backbone", vla.vlm_backbone],
+    ...(vla.vlm_hidden_size ? [["Hidden dim", vla.vlm_hidden_size.toLocaleString()] as [string, string]] : []),
+    ...(vla.vlm_num_layers ? [["Backbone layers", vla.vlm_num_layers.toString()] as [string, string]] : []),
   ];
 
   const actionEntries: [string, string][] = [

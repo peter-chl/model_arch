@@ -49,6 +49,7 @@ function categoryLabel(cat) {
     case "image-gen": return "Image Generation";
     case "video-gen": return "Video Generation";
     case "vla": return "Vision-Language-Action";
+    case "wam": return "World Action Model";
     default: return cat.toUpperCase();
   }
 }

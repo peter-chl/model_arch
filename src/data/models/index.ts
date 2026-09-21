@@ -53,9 +53,11 @@ import { mossVL } from "./moss-vl";
 import { minimaxH3 } from "./minimax-h3";
 import { pi0 } from "./pi-0";
 import { pi05 } from "./pi-0-5";
+import { dreamZero } from "./dreamzero";
 
 export const models: ModelFamily[] = [
   // 2026
+  dreamZero,
   deepseekV41Flash,
   minimaxH3,
   qwen38max,

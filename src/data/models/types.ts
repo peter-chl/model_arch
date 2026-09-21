@@ -76,8 +76,8 @@ export interface DiffusionConfig {
 export interface VLAConfig {
   vision_encoder: string;
   vlm_backbone: string;
-  vlm_hidden_size: number;
-  vlm_num_layers: number;
+  vlm_hidden_size?: number;
+  vlm_num_layers?: number;
   action_head: string;
   action_head_type: "flow_matching" | "autoregressive" | "diffusion";
   action_head_hidden_size?: number;
@@ -125,7 +125,7 @@ export interface ModelLink {
   url: string;
 }
 
-export type ModelCategory = "llm" | "vlm" | "image-gen" | "video-gen" | "vla";
+export type ModelCategory = "llm" | "vlm" | "image-gen" | "video-gen" | "vla" | "wam";
 
 export interface VisionEncoderConfig {
   type: string;
