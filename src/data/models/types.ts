@@ -42,6 +42,13 @@ export interface ModelConfig {
   activation: string;
   pos_encoding: string;
   tie_embeddings: boolean;
+  // RMSNorm applied per-head to Q and K before RoPE (normalized over head_dim)
+  qk_norm?: boolean;
+  // Bias terms on the Q/K/V projections (Qwen2 had these; Qwen3 dropped them for qk_norm)
+  attention_bias?: boolean;
+  rope_theta?: number;
+  // Pretrained context length, when max_seq_len reflects an extended (e.g. YaRN) window
+  native_seq_len?: number;
   moe?: MoEConfig;
   mla?: MLAConfig;
   hybrid_attn?: HybridAttentionConfig;

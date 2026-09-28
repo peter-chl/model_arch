@@ -13,6 +13,8 @@ import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionCon
 type ComponentType =
   | "rmsnorm"
   | "layernorm"
+  | "qk_norm"
+  | "rope"
   | "gqa"
   | "mha"
   | "mla"
@@ -134,6 +136,58 @@ const operationDetails: Record<
       },
     ],
   },
+  qk_norm: {
+    title: "QK-Norm (Query–Key Normalization)",
+    operation:
+      "Applies RMSNorm to the query and key vectors of each head, after the Q/K projections but before RoPE. Normalization is over the head dimension only — each head is normalized independently, so the learnable scale is a vector of size head_dim, not hidden_size. This bounds the magnitude of Q and K, keeping the pre-softmax logits QKᵀ/√d_h from growing large enough to saturate the softmax and destabilize training. Qwen3 adopts QK-Norm and, in exchange, drops the Q/K/V projection biases that Qwen2 carried.",
+    formula: [
+      { type: "text", content: "Project, split into heads, then normalize each head independently:" },
+      {
+        type: "latex",
+        content: String.raw`\begin{aligned}
+\mathbf{Q} &= \text{RMSNorm}_{d_h}\bigl(\text{reshape}(\mathbf{x} W_Q)\bigr) \cdot \boldsymbol{\gamma}_q \quad &\in \mathbb{R}^{B \times h \times S \times d_h} \\
+\mathbf{K} &= \text{RMSNorm}_{d_h}\bigl(\text{reshape}(\mathbf{x} W_K)\bigr) \cdot \boldsymbol{\gamma}_k \quad &\in \mathbb{R}^{B \times h_{kv} \times S \times d_h}
+\end{aligned}`,
+      },
+      { type: "text", content: "Normalization is over the last axis (head_dim) only:" },
+      {
+        type: "latex",
+        content: String.raw`\text{RMSNorm}_{d_h}(\mathbf{u}) = \frac{\mathbf{u}}{\sqrt{\frac{1}{d_h}\sum_{j=1}^{d_h} u_j^2 + \epsilon}}`,
+      },
+      {
+        type: "text",
+        content:
+          "γ_q and γ_k are learnable vectors of size [head_dim], shared across all heads — 2 × head_dim parameters per layer, a negligible cost. V is left un-normalized. RoPE is applied after this step.",
+      },
+    ],
+  },
+  rope: {
+    title: "RoPE (Rotary Position Embedding)",
+    operation:
+      "Injects position by rotating each consecutive pair of dimensions in Q and K by an angle proportional to the token's absolute position. Because a dot product between two rotated vectors depends only on the difference of their rotation angles, attention scores end up a function of relative position (m − n) — absolute positions are never stored, yet relative distance is encoded exactly. RoPE adds no parameters and is applied to Q and K only, never to V.",
+    formula: [
+      { type: "text", content: "Per-dimension-pair frequencies, set by the base θ (rope_theta):" },
+      {
+        type: "latex",
+        content: String.raw`\theta_i = \theta_{\text{base}}^{-2i/d_h}, \qquad i = 0, 1, \dots, \tfrac{d_h}{2}-1`,
+      },
+      { type: "text", content: "Each 2D pair at position m is rotated by m·θᵢ:" },
+      {
+        type: "latex",
+        content: String.raw`\begin{pmatrix} x'_{2i} \\ x'_{2i+1} \end{pmatrix} = \begin{pmatrix} \cos m\theta_i & -\sin m\theta_i \\ \sin m\theta_i & \cos m\theta_i \end{pmatrix} \begin{pmatrix} x_{2i} \\ x_{2i+1} \end{pmatrix}`,
+      },
+      { type: "text", content: "The relative-position property that makes this work:" },
+      {
+        type: "latex",
+        content: String.raw`\langle \text{RoPE}(\mathbf{q}, m),\; \text{RoPE}(\mathbf{k}, n) \rangle = f(\mathbf{q}, \mathbf{k},\, m - n)`,
+      },
+      {
+        type: "text",
+        content:
+          "Low i gives high-frequency rotations that resolve nearby tokens; high i gives long-wavelength rotations that carry long-range position. A larger θ_base lengthens all wavelengths, which is why long-context models raise it (Qwen3 uses 1,000,000 vs 10,000 in the original formulation).",
+      },
+    ],
+  },
   mha: {
     title: "Multi-Head Attention",
     operation:
@@ -146,6 +200,14 @@ const operationDetails: Record<
 \mathbf{K} &= \mathbf{x} \cdot W_K \quad &\in \mathbb{R}^{B \times S \times (h \cdot d_h)} \\
 \mathbf{V} &= \mathbf{x} \cdot W_V \quad &\in \mathbb{R}^{B \times S \times (h \cdot d_h)}
 \end{aligned}`,
+      },
+      {
+        type: "text",
+        content: "Q and K are rotated by RoPE before the attention product (V is not):",
+      },
+      {
+        type: "latex",
+        content: String.raw`\mathbf{Q} \leftarrow \text{RoPE}(\mathbf{Q}), \qquad \mathbf{K} \leftarrow \text{RoPE}(\mathbf{K})`,
       },
       {
         type: "latex",
@@ -176,12 +238,26 @@ const operationDetails: Record<
           "Each KV head is shared across (h / h_kv) query heads, reducing KV cache by that factor.",
       },
       {
+        type: "text",
+        content:
+          "Position is then injected by rotating Q and K with RoPE (V is left untouched), so the attention logits depend on relative offset m − n:",
+      },
+      {
+        type: "latex",
+        content: String.raw`\mathbf{Q} \leftarrow \text{RoPE}(\mathbf{Q}), \qquad \mathbf{K} \leftarrow \text{RoPE}(\mathbf{K})`,
+      },
+      {
         type: "latex",
         content: String.raw`\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_h}}\right) V`,
       },
       {
         type: "latex",
         content: String.raw`\text{Output} = \text{Concat}(\text{all heads}) \cdot W_O`,
+      },
+      {
+        type: "text",
+        content:
+          "Models using QK-Norm insert a per-head RMSNorm on Q and K between the projections and RoPE — see the QK-Norm sublayer for details.",
       },
     ],
   },
@@ -497,17 +573,39 @@ function calcGQAAttention(c: ModelConfig): SubLayerInfo {
   const k = d * kvh * dh;
   const v = d * kvh * dh;
   const o = h * dh * d;
+  const bias = c.attention_bias ? h * dh + 2 * kvh * dh : 0;
   const isGQA = kvh < h;
   return {
     name: isGQA ? `GQA Attention (${h}h, ${kvh}kv)` : `MHA (${h} heads)`,
     component: isGQA ? "gqa" : "mha",
     dims: `Q:[${d}→${h * dh}] K:[${d}→${kvh * dh}] V:[${d}→${kvh * dh}] O:[${h * dh}→${d}]`,
-    params: q + k + v + o,
+    params: q + k + v + o + bias,
     paramBreakdown: [
       { label: "W_q", formula: fmul(d, h * dh), value: q },
       { label: "W_k", formula: fmul(d, kvh * dh), value: k },
       { label: "W_v", formula: fmul(d, kvh * dh), value: v },
       { label: "W_o", formula: fmul(h * dh, d), value: o },
+      ...(c.attention_bias
+        ? [{
+            label: "b_q + b_k + b_v (bias)",
+            formula: `${h * dh} + ${kvh * dh} + ${kvh * dh} = ${formatNumber(bias)}`,
+            value: bias,
+          }]
+        : []),
+    ],
+  };
+}
+
+function calcQKNorm(c: ModelConfig): SubLayerInfo {
+  const { head_dim: dh } = c;
+  return {
+    name: "QK-Norm (per-head RMSNorm on Q, K)",
+    component: "qk_norm",
+    dims: `q_norm:[${dh}] k_norm:[${dh}]`,
+    params: 2 * dh,
+    paramBreakdown: [
+      { label: "γ_q (q_norm)", formula: `${dh}`, value: dh },
+      { label: "γ_k (k_norm)", formula: `${dh}`, value: dh },
     ],
   };
 }
@@ -723,15 +821,18 @@ function generateLayers(c: ModelConfig): LayerInfo[] {
       attn = calcGQAAttention(c);
     }
     const ffn = isMoE ? calcMoEFFN(c, c.moe!) : calcDenseFFN(c);
+    // QK-Norm sits inside the attention block, between the Q/K projections and RoPE
+    const qkNorm = c.qk_norm && !c.mla ? calcQKNorm(c) : null;
     layers.push({
       index: idx++,
       name: `Layer ${i}${attnLabel}`,
       type: "transformer",
       variant: isMoE ? "moe" : "dense",
-      params: attn.params + ffn.params + norm.params * 2,
+      params: attn.params + ffn.params + norm.params * 2 + (qkNorm?.params ?? 0),
       sublayers: [
         { ...norm, name: `${c.norm} (pre-attn)` },
         attn,
+        ...(qkNorm ? [qkNorm] : []),
         { ...norm, name: `${c.norm} (pre-FFN)` },
         ffn,
       ],
@@ -1640,10 +1741,15 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
     ...(config.deltanet ? [] : config.num_kv_heads > 0 ? [["KV heads", config.num_kv_heads.toString()]] : []),
     ...(config.deltanet ? [] : [["Head dim", config.head_dim.toString()]]),
     ["FFN dim", formatNumber(config.intermediate_size)],
-    ["Max seq len", formatNumber(config.max_seq_len)],
+    ["Max seq len", config.native_seq_len
+      ? `${formatNumber(config.native_seq_len)} native / ${formatNumber(config.max_seq_len)} extended`
+      : formatNumber(config.max_seq_len)],
     ["Norm", config.norm],
     ["Activation", config.activation],
     ["Pos encoding", config.pos_encoding],
+    ...(config.rope_theta ? [["RoPE θ base", formatNumber(config.rope_theta)]] : []),
+    ...(config.qk_norm !== undefined ? [["QK-Norm", config.qk_norm ? "Yes (RMSNorm over head_dim)" : "No"]] : []),
+    ...(config.attention_bias !== undefined ? [["QKV bias", config.attention_bias ? "Yes" : "No"]] : []),
     ["Tie embeddings", config.tie_embeddings ? "Yes" : "No"],
     ...(config.mla ? [
       ["KV LoRA rank", config.mla.kv_lora_rank.toString()],
@@ -1817,6 +1923,61 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
                       <p className="font-mono text-sm text-foreground">{value}</p>
                     </div>
                   ))}
+                </div>
+              </details>
+            )}
+
+            {config && /rope/i.test(config.pos_encoding) && (
+              <details className="mb-8 group">
+                <summary className="cursor-pointer text-sm font-semibold uppercase tracking-widest text-muted hover:text-foreground transition-colors">
+                  Positional Encoding — {config.pos_encoding}
+                </summary>
+                <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+                  <p className="mb-3 text-xs leading-relaxed text-muted">
+                    {operationDetails.rope.operation}
+                  </p>
+                  <FormulaRenderer blocks={operationDetails.rope.formula} />
+                  {config.rope_theta && (
+                    <p className="mt-3 text-xs text-muted">
+                      This model uses θ_base = {formatNumber(config.rope_theta)}
+                      {config.head_dim ? `, giving ${config.head_dim / 2} distinct rotation frequencies across the ${config.head_dim}-dim head.` : "."}
+                    </p>
+                  )}
+                  {/yarn/i.test(config.pos_encoding) && (
+                    <div className="mt-4 border-t border-border pt-4">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+                        YaRN Context Extension
+                      </p>
+                      <p className="mb-3 text-xs leading-relaxed text-muted">
+                        YaRN is an inference-time modification, not part of the pretrained weights — the
+                        released checkpoint is trained at the native length and YaRN is enabled in the
+                        serving config to reach the extended window. It rescales RoPE frequencies
+                        unevenly (NTK-by-parts): high-frequency dimensions, which complete many rotations
+                        within the original context, are left alone to preserve local precision, while
+                        low-frequency dimensions are interpolated by the scale factor s so they still span
+                        the longer window.
+                      </p>
+                      <FormulaRenderer
+                        blocks={[
+                          {
+                            type: "latex",
+                            content: String.raw`\theta_i' = \theta_i \left( \frac{1 - \gamma_i}{s} + \gamma_i \right), \qquad s = \frac{L_{\text{extended}}}{L_{\text{native}}}`,
+                          },
+                          {
+                            type: "text",
+                            content:
+                              "γᵢ ∈ [0,1] is a ramp over each dimension's rotation count at the native length — 1 for high-frequency dims (unchanged), 0 for low-frequency dims (fully interpolated to θᵢ/s). YaRN additionally applies a temperature correction to the attention logits to offset the entropy change from a longer context.",
+                          },
+                        ]}
+                      />
+                      {config.native_seq_len && (
+                        <p className="mt-3 text-xs text-muted">
+                          Here s = {formatNumber(config.max_seq_len)} / {formatNumber(config.native_seq_len)} ={" "}
+                          {(config.max_seq_len / config.native_seq_len).toFixed(0)}×.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </details>
             )}
