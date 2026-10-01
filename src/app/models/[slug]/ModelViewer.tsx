@@ -164,7 +164,7 @@ const operationDetails: Record<
   rope: {
     title: "RoPE (Rotary Position Embedding)",
     operation:
-      "Injects position by rotating each consecutive pair of dimensions in Q and K by an angle proportional to the token's absolute position. Because a dot product between two rotated vectors depends only on the difference of their rotation angles, attention scores end up a function of relative position (m − n) — absolute positions are never stored, yet relative distance is encoded exactly. RoPE adds no parameters and is applied to Q and K only, never to V.",
+      "Injects position by rotating each consecutive pair of dimensions in Q and K by an angle proportional to the token's absolute position. Because a dot product between two rotated vectors depends only on the difference of their rotation angles, attention scores end up a function of relative position (m − n) — absolute positions are never stored, yet relative distance is encoded exactly. RoPE adds no parameters and is applied to Q and K only, never to V. It is not part of GQA or MHA — it is an orthogonal positional scheme that acts on Q and K inside whichever attention variant the model uses, and in models that also use QK-Norm it runs after that normalization, never before.",
     formula: [
       { type: "text", content: "Per-dimension-pair frequencies, set by the base θ (rope_theta):" },
       {
@@ -191,24 +191,35 @@ const operationDetails: Record<
   mha: {
     title: "Multi-Head Attention",
     operation:
-      "Standard self-attention with independent Q, K, V projections per head. Each head attends over the full sequence independently, then outputs are concatenated and projected.",
+      "Standard self-attention with independent Q, K, V projections per head. Each head attends over the full sequence independently, then outputs are concatenated and projected. QK-Norm and RoPE are independent choices applied to Q and K inside this block, in the fixed order below.",
     formula: [
+      { type: "text", content: "① Project and split into heads:" },
       {
         type: "latex",
         content: String.raw`\begin{aligned}
-\mathbf{Q} &= \mathbf{x} \cdot W_Q \quad &\in \mathbb{R}^{B \times S \times (h \cdot d_h)} \\
-\mathbf{K} &= \mathbf{x} \cdot W_K \quad &\in \mathbb{R}^{B \times S \times (h \cdot d_h)} \\
-\mathbf{V} &= \mathbf{x} \cdot W_V \quad &\in \mathbb{R}^{B \times S \times (h \cdot d_h)}
+\mathbf{Q} &= \mathbf{x} \cdot W_Q \quad &\in \mathbb{R}^{B \times h \times S \times d_h} \\
+\mathbf{K} &= \mathbf{x} \cdot W_K \quad &\in \mathbb{R}^{B \times h \times S \times d_h} \\
+\mathbf{V} &= \mathbf{x} \cdot W_V \quad &\in \mathbb{R}^{B \times h \times S \times d_h}
 \end{aligned}`,
       },
       {
         type: "text",
-        content: "Q and K are rotated by RoPE before the attention product (V is not):",
+        content:
+          "② QK-Norm — only in models that use it. A per-head RMSNorm over head_dim on Q and K (never V), before RoPE:",
       },
       {
         type: "latex",
-        content: String.raw`\mathbf{Q} \leftarrow \text{RoPE}(\mathbf{Q}), \qquad \mathbf{K} \leftarrow \text{RoPE}(\mathbf{K})`,
+        content: String.raw`\mathbf{Q} \leftarrow \text{RMSNorm}_{d_h}(\mathbf{Q}) \odot \boldsymbol{\gamma}_q, \qquad \mathbf{K} \leftarrow \text{RMSNorm}_{d_h}(\mathbf{K}) \odot \boldsymbol{\gamma}_k`,
       },
+      {
+        type: "text",
+        content: "③ RoPE rotates Q and K by position (V is not rotated), applied after any QK-Norm:",
+      },
+      {
+        type: "latex",
+        content: String.raw`\mathbf{Q} \leftarrow \text{RoPE}(\mathbf{Q}, m), \qquad \mathbf{K} \leftarrow \text{RoPE}(\mathbf{K}, n)`,
+      },
+      { type: "text", content: "④ Scaled dot-product attention, then ⑤ concatenate and project out:" },
       {
         type: "latex",
         content: String.raw`\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_h}}\right) V`,
@@ -222,14 +233,15 @@ const operationDetails: Record<
   gqa: {
     title: "Grouped-Query Attention",
     operation:
-      "A memory-efficient variant of multi-head attention where multiple query heads share the same key-value head. Reduces KV cache size by a factor of num_heads / num_kv_heads while retaining most of MHA's quality.",
+      "A memory-efficient variant of multi-head attention where multiple query heads share the same key-value head. Reduces KV cache size by a factor of num_heads / num_kv_heads while retaining most of MHA's quality. GQA describes only how heads are shared — QK-Norm and RoPE are independent choices that act on Q and K inside this block, in the fixed order below.",
     formula: [
+      { type: "text", content: "① Project and split into heads:" },
       {
         type: "latex",
         content: String.raw`\begin{aligned}
-\mathbf{Q} &= \mathbf{x} \cdot W_Q \quad &\in \mathbb{R}^{B \times S \times (h \cdot d_h)} \\
-\mathbf{K} &= \mathbf{x} \cdot W_K \quad &\in \mathbb{R}^{B \times S \times (h_{kv} \cdot d_h)} \\
-\mathbf{V} &= \mathbf{x} \cdot W_V \quad &\in \mathbb{R}^{B \times S \times (h_{kv} \cdot d_h)}
+\mathbf{Q} &= \mathbf{x} \cdot W_Q \quad &\in \mathbb{R}^{B \times h \times S \times d_h} \\
+\mathbf{K} &= \mathbf{x} \cdot W_K \quad &\in \mathbb{R}^{B \times h_{kv} \times S \times d_h} \\
+\mathbf{V} &= \mathbf{x} \cdot W_V \quad &\in \mathbb{R}^{B \times h_{kv} \times S \times d_h}
 \end{aligned}`,
       },
       {
@@ -240,16 +252,27 @@ const operationDetails: Record<
       {
         type: "text",
         content:
-          "Position is then injected by rotating Q and K with RoPE (V is left untouched), so the attention logits depend on relative offset m − n:",
+          "② QK-Norm — only in models that use it. A per-head RMSNorm over head_dim is applied to Q and K (never V), before RoPE:",
       },
       {
         type: "latex",
-        content: String.raw`\mathbf{Q} \leftarrow \text{RoPE}(\mathbf{Q}), \qquad \mathbf{K} \leftarrow \text{RoPE}(\mathbf{K})`,
+        content: String.raw`\mathbf{Q} \leftarrow \text{RMSNorm}_{d_h}(\mathbf{Q}) \odot \boldsymbol{\gamma}_q, \qquad \mathbf{K} \leftarrow \text{RMSNorm}_{d_h}(\mathbf{K}) \odot \boldsymbol{\gamma}_k`,
       },
+      {
+        type: "text",
+        content:
+          "③ RoPE rotates Q and K by absolute position (V is left untouched), so the logits become a function of the relative offset m − n. RoPE is applied after any QK-Norm, never before it:",
+      },
+      {
+        type: "latex",
+        content: String.raw`\mathbf{Q} \leftarrow \text{RoPE}(\mathbf{Q}, m), \qquad \mathbf{K} \leftarrow \text{RoPE}(\mathbf{K}, n)`,
+      },
+      { type: "text", content: "④ Scaled dot-product attention over the prepared Q, K, V:" },
       {
         type: "latex",
         content: String.raw`\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_h}}\right) V`,
       },
+      { type: "text", content: "⑤ Concatenate heads and project back to the model dimension:" },
       {
         type: "latex",
         content: String.raw`\text{Output} = \text{Concat}(\text{all heads}) \cdot W_O`,
@@ -257,7 +280,7 @@ const operationDetails: Record<
       {
         type: "text",
         content:
-          "Models using QK-Norm insert a per-head RMSNorm on Q and K between the projections and RoPE — see the QK-Norm sublayer for details.",
+          "Only ① and ⑤ carry weight matrices. QK-Norm adds two head_dim-sized vectors; RoPE and the softmax add no parameters.",
       },
     ],
   },
@@ -574,38 +597,34 @@ function calcGQAAttention(c: ModelConfig): SubLayerInfo {
   const v = d * kvh * dh;
   const o = h * dh * d;
   const bias = c.attention_bias ? h * dh + 2 * kvh * dh : 0;
+  // QK-Norm lives inside the attention block: after the Q/K projections, before RoPE
+  const qkn = c.qk_norm ? 2 * dh : 0;
   const isGQA = kvh < h;
+  const base = isGQA ? `GQA Attention (${h}h, ${kvh}kv)` : `MHA (${h} heads)`;
   return {
-    name: isGQA ? `GQA Attention (${h}h, ${kvh}kv)` : `MHA (${h} heads)`,
+    name: c.qk_norm ? `${base} + QK-Norm` : base,
     component: isGQA ? "gqa" : "mha",
     dims: `Q:[${d}→${h * dh}] K:[${d}→${kvh * dh}] V:[${d}→${kvh * dh}] O:[${h * dh}→${d}]`,
-    params: q + k + v + o + bias,
+    params: q + k + v + o + bias + qkn,
+    // Ordered as the forward pass runs: project → QK-Norm → RoPE (no params) → attn → W_o
     paramBreakdown: [
-      { label: "W_q", formula: fmul(d, h * dh), value: q },
-      { label: "W_k", formula: fmul(d, kvh * dh), value: k },
-      { label: "W_v", formula: fmul(d, kvh * dh), value: v },
-      { label: "W_o", formula: fmul(h * dh, d), value: o },
+      { label: "① W_q", formula: fmul(d, h * dh), value: q },
+      { label: "① W_k", formula: fmul(d, kvh * dh), value: k },
+      { label: "① W_v", formula: fmul(d, kvh * dh), value: v },
       ...(c.attention_bias
         ? [{
-            label: "b_q + b_k + b_v (bias)",
+            label: "① b_q + b_k + b_v (bias)",
             formula: `${h * dh} + ${kvh * dh} + ${kvh * dh} = ${formatNumber(bias)}`,
             value: bias,
           }]
         : []),
-    ],
-  };
-}
-
-function calcQKNorm(c: ModelConfig): SubLayerInfo {
-  const { head_dim: dh } = c;
-  return {
-    name: "QK-Norm (per-head RMSNorm on Q, K)",
-    component: "qk_norm",
-    dims: `q_norm:[${dh}] k_norm:[${dh}]`,
-    params: 2 * dh,
-    paramBreakdown: [
-      { label: "γ_q (q_norm)", formula: `${dh}`, value: dh },
-      { label: "γ_k (k_norm)", formula: `${dh}`, value: dh },
+      ...(c.qk_norm
+        ? [
+            { label: "② γ_q (q_norm, over head_dim)", formula: `${dh}`, value: dh },
+            { label: "② γ_k (k_norm, over head_dim)", formula: `${dh}`, value: dh },
+          ]
+        : []),
+      { label: "⑤ W_o", formula: fmul(h * dh, d), value: o },
     ],
   };
 }
@@ -821,18 +840,15 @@ function generateLayers(c: ModelConfig): LayerInfo[] {
       attn = calcGQAAttention(c);
     }
     const ffn = isMoE ? calcMoEFFN(c, c.moe!) : calcDenseFFN(c);
-    // QK-Norm sits inside the attention block, between the Q/K projections and RoPE
-    const qkNorm = c.qk_norm && !c.mla ? calcQKNorm(c) : null;
     layers.push({
       index: idx++,
       name: `Layer ${i}${attnLabel}`,
       type: "transformer",
       variant: isMoE ? "moe" : "dense",
-      params: attn.params + ffn.params + norm.params * 2 + (qkNorm?.params ?? 0),
+      params: attn.params + ffn.params + norm.params * 2,
       sublayers: [
         { ...norm, name: `${c.norm} (pre-attn)` },
         attn,
-        ...(qkNorm ? [qkNorm] : []),
         { ...norm, name: `${c.norm} (pre-FFN)` },
         ffn,
       ],
@@ -1927,12 +1943,75 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
               </details>
             )}
 
+            {config && !config.deltanet && !config.mla && (
+              <details className="mb-8 group">
+                <summary className="cursor-pointer text-sm font-semibold uppercase tracking-widest text-muted hover:text-foreground transition-colors">
+                  Attention Block — Order of Operations
+                </summary>
+                <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+                  <p className="mb-4 text-xs leading-relaxed text-muted">
+                    Inside each attention block these stages run in a fixed sequence. Only the
+                    projections carry weight matrices; normalization and the rotary embedding act on
+                    Q and K in place.
+                  </p>
+                  <ol className="mb-4 space-y-2">
+                    {[
+                      ["①", "Q / K / V projection", `x · W_q, W_k, W_v → split into ${config.num_attention_heads} heads of ${config.head_dim}`, true],
+                      ...(config.qk_norm
+                        ? [["②", "QK-Norm", `RMSNorm over head_dim (${config.head_dim}) on Q and K only — not V`, true] as const]
+                        : []),
+                      ["③", `RoPE${/yarn/i.test(config.pos_encoding) ? " (+ YaRN at inference)" : ""}`,
+                        config.qk_norm
+                          ? "rotate Q and K by position — after QK-Norm, never before"
+                          : "rotate Q and K by position — V is not rotated",
+                        false],
+                      ["④", "Scaled dot-product + softmax", "softmax(QKᵀ / √d_h) · V", false],
+                      ["⑤", "Output projection", "concat heads · W_o → back to hidden_size", true],
+                    ].map(([num, title, detail, hasParams]) => (
+                      <li key={String(num)} className="flex gap-3">
+                        <span className="shrink-0 font-mono text-sm text-accent">{String(num)}</span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-foreground">
+                            {String(title)}
+                            {!hasParams && (
+                              <span className="ml-2 font-normal text-[10px] uppercase tracking-wider text-muted/60">
+                                no parameters
+                              </span>
+                            )}
+                          </p>
+                          <p className="font-mono text-[11px] leading-relaxed text-muted break-words">
+                            {String(detail)}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                  {config.qk_norm && (
+                    <div className="border-t border-border pt-4">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+                        ② {operationDetails.qk_norm.title}
+                      </p>
+                      <p className="mb-3 text-xs leading-relaxed text-muted">
+                        {operationDetails.qk_norm.operation}
+                      </p>
+                      <FormulaRenderer blocks={operationDetails.qk_norm.formula} />
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
+
             {config && /rope/i.test(config.pos_encoding) && (
               <details className="mb-8 group">
                 <summary className="cursor-pointer text-sm font-semibold uppercase tracking-widest text-muted hover:text-foreground transition-colors">
                   Positional Encoding — {config.pos_encoding}
                 </summary>
                 <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+                  <p className="mb-3 text-xs leading-relaxed text-muted">
+                    {config.qk_norm
+                      ? "Stage ③ of the attention block — applied to Q and K after QK-Norm has normalized them, and before the attention product."
+                      : "Stage ③ of the attention block — applied to Q and K before the attention product."}
+                  </p>
                   <p className="mb-3 text-xs leading-relaxed text-muted">
                     {operationDetails.rope.operation}
                   </p>
