@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink, VisionEncoderConfig, DiffusionConfig, VLAConfig, ModelVariant, ModalityPipeline, PipelineStageRole } from "@/data/models";
+import type { ModelFamily, ModelConfig, MoEConfig, MLAConfig, HybridAttentionConfig, DeltaNetConfig, ModelLink, VisionEncoderConfig, DiffusionConfig, VLAConfig, EmbodimentInterface, ModelVariant, ModalityPipeline, PipelineStageRole } from "@/data/models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1578,6 +1578,204 @@ function DiffusionPanel({ variant }: { variant: ModelVariant }) {
 // VLA Panel
 // ---------------------------------------------------------------------------
 
+function parseTile(s: string): { h: number; w: number } {
+  const [h, w] = s.split("×").map((t) => parseInt(t.trim(), 10));
+  return { h, w };
+}
+
+// Lays the camera tiles out the way the dataset does: equal-sized tiles go in a
+// single row; one large tile plus smaller equal ones goes large-on-top.
+function tileLayout(emb: EmbodimentInterface) {
+  const tiles = emb.cameras.map((c) => ({ ...parseTile(c.tile), name: c.name }));
+  const allEqual = tiles.every((t) => t.h === tiles[0].h && t.w === tiles[0].w);
+  if (allEqual) {
+    let x = 0;
+    return tiles.map((t) => {
+      const box = { x, y: 0, w: t.w, h: t.h, name: t.name };
+      x += t.w;
+      return box;
+    });
+  }
+  const [first, ...rest] = tiles;
+  let x = 0;
+  return [
+    { x: 0, y: 0, w: first.w, h: first.h, name: first.name },
+    ...rest.map((t) => {
+      const box = { x, y: first.h, w: t.w, h: t.h, name: t.name };
+      x += t.w;
+      return box;
+    }),
+  ];
+}
+
+function CanvasDiagram({ emb, scale }: { emb: EmbodimentInterface; scale: number }) {
+  const boxes = tileLayout(emb);
+  const W = emb.canvas_w * scale;
+  const H = emb.canvas_h * scale;
+  const PALETTE = ["#58a6ff", "#3fb950", "#d29922"];
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0" role="img"
+      aria-label={`${emb.benchmark} video canvas, ${emb.canvas}`}>
+      {boxes.map((b, i) => (
+        <g key={b.name}>
+          <rect
+            x={b.x * scale} y={b.y * scale}
+            width={b.w * scale} height={b.h * scale}
+            fill={PALETTE[i % PALETTE.length]} fillOpacity={0.16}
+            stroke={PALETTE[i % PALETTE.length]} strokeWidth={1}
+          />
+          <text
+            x={(b.x + b.w / 2) * scale} y={(b.y + b.h / 2) * scale}
+            textAnchor="middle" dominantBaseline="middle"
+            fill={PALETTE[i % PALETTE.length]} fontSize={9} fontFamily="monospace"
+          >
+            {i + 1}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function EmbodimentComparison({ variants }: { variants: ModelVariant[] }) {
+  const cols = variants.filter((v) => v.vla?.embodiment);
+  if (cols.length < 2) return null;
+  const shared = cols[0].vla!;
+
+  // One scale for every canvas so their real shapes are comparable by eye.
+  const maxDim = Math.max(...cols.map((v) => Math.max(v.vla!.embodiment!.canvas_w, v.vla!.embodiment!.canvas_h)));
+  const scale = 110 / maxDim;
+
+  const rows: [string, (v: ModelVariant) => string][] = [
+    ["Benchmark", (v) => v.vla!.embodiment!.benchmark],
+    ["Robot", (v) => v.vla!.embodiment!.robot],
+    ["Cameras", (v) => `${v.vla!.embodiment!.cameras.length}`],
+    ["Per-camera tile", (v) => v.vla!.embodiment!.cameras.map((c) => `${c.name} → ${c.tile}`).join("\n")],
+    ["Tiled canvas", (v) => `${v.vla!.embodiment!.canvas}  (${v.vla!.embodiment!.tiling})`],
+    ["Action dim", (v) => `${v.vla!.embodiment!.action_dim} — ${v.vla!.embodiment!.action_layout}`],
+    ["State dim", (v) => `${v.vla!.embodiment!.state_dim} — ${v.vla!.embodiment!.state_layout}`],
+    ["Action normalization", (v) => v.vla!.embodiment!.normalization],
+    ["Shape-dependent tensors", (v) => v.vla!.embodiment!.adapter_tensors.join("\n")],
+    ["Adapter parameters", (v) => `${v.vla!.embodiment!.adapter_params} of ${v.totalParams}`],
+    ["Released checkpoint", (v) => v.vla!.embodiment!.checkpoint],
+    ["Training", (v) => v.vla!.embodiment!.training ?? "—"],
+  ];
+
+  return (
+    <div className="mt-10">
+      <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-muted">
+        One Architecture, {cols.length} Embodiments
+      </p>
+      <p className="mb-5 max-w-3xl text-xs leading-relaxed text-muted/80">
+        These benchmarks disagree on almost everything an end-to-end policy normally
+        hard-codes: how many cameras there are, what resolution they stream at, how many
+        degrees of freedom the robot has, and whether actions are end-effector deltas or
+        joint targets. Fast-WAM absorbs all of it in two places — the dataset tiles every
+        camera view into one video canvas, and three thin projection tensors adapt the
+        action and state widths. The backbone in between never changes shape.
+      </p>
+
+      <div className="mb-6 rounded-lg border border-accent/30 bg-accent/5 p-4">
+        <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-accent">
+          Identical across every checkpoint
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {[
+            ["World encoder", shared.vlm_backbone],
+            ["Action head", shared.action_head],
+            ["Latent input", shared.vision_encoder],
+            ["Horizon", `33 observation frames → ${shared.action_chunk_size} actions + 9 video frames (4:1 action-to-frame ratio)`],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded border border-border bg-background/40 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-muted">{label}</p>
+              <p className="text-[11px] leading-relaxed text-foreground">{value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted">
+          Step 1 — every camera view is tiled into a single canvas
+        </p>
+        <p className="mb-4 max-w-3xl text-xs leading-relaxed text-muted/80">
+          The world encoder only ever sees one video stream, so camera count stops being an
+          architectural parameter and becomes a layout decision. Canvas sizes differ, which
+          a patch-based DiT handles natively — it simply yields a different number of latent
+          tokens per frame. Drawn below to the same scale:
+        </p>
+        <div className="flex flex-wrap items-end gap-8">
+          {cols.map((v) => {
+            const emb = v.vla!.embodiment!;
+            return (
+              <div key={v.id}>
+                <CanvasDiagram emb={emb} scale={scale} />
+                <p className="mt-2 font-mono text-[11px] text-foreground">{emb.canvas}</p>
+                <p className="text-[10px] text-muted">{v.name} · {emb.cameras.length} views</p>
+                <ol className="mt-1.5 space-y-0.5">
+                  {emb.cameras.map((c, i) => (
+                    <li key={c.name} className="font-mono text-[10px] text-muted/70">
+                      <span className="text-accent">{i + 1}</span> {c.name} · {c.tile}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted">
+        Step 2 — three projections absorb the action and state widths
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full min-w-[640px] border-collapse text-left">
+          <thead>
+            <tr className="border-b border-border bg-surface">
+              <th className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                Differs per checkpoint
+              </th>
+              {cols.map((v) => (
+                <th key={v.id} className="px-3 py-2 text-xs font-semibold text-foreground">
+                  {v.name}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([label, get], i) => (
+              <tr key={label} className={i % 2 ? "bg-surface/40" : ""}>
+                <td className="border-t border-border px-3 py-2 align-top text-[11px] text-muted">
+                  {label}
+                </td>
+                {cols.map((v) => (
+                  <td
+                    key={v.id}
+                    className="border-t border-border px-3 py-2 align-top font-mono text-[11px] text-foreground"
+                    style={{ whiteSpace: "pre-line" }}
+                  >
+                    {get(v)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-4 max-w-3xl text-xs leading-relaxed text-muted/80">
+        Proprioception is projected to the text embedding width and injected as an extra
+        conditioning token alongside the language embedding, rather than entering the action
+        head directly — so a change in state dimensionality never reaches the backbone either.
+        The checkpoints stay separate because those projections genuinely differ in width and
+        each benchmark carries its own normalization statistics; the dataset layer does
+        provide left-aligned zero padding with a validity mask, which is the hook a single
+        cross-embodiment checkpoint would use to pad both robots to one common width.
+      </p>
+    </div>
+  );
+}
+
 function VLAPanel({ variant }: { variant: ModelVariant }) {
   const vla = variant.vla!;
 
@@ -1639,6 +1837,24 @@ function VLAPanel({ variant }: { variant: ModelVariant }) {
         </h3>
         <Grid entries={actionEntries} />
       </div>
+
+      {vla.embodiment && (
+        <div>
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">
+            Embodiment Interface — {vla.embodiment.benchmark}
+          </h3>
+          <Grid
+            entries={[
+              ["Robot", vla.embodiment.robot],
+              ["Cameras", `${vla.embodiment.cameras.length} → tiled to ${vla.embodiment.canvas}`],
+              ["Action dim", `${vla.embodiment.action_dim} — ${vla.embodiment.action_layout}`],
+              ["State dim", `${vla.embodiment.state_dim} — ${vla.embodiment.state_layout}`],
+              ["Normalization", vla.embodiment.normalization],
+              ["Checkpoint", vla.embodiment.checkpoint],
+            ]}
+          />
+        </div>
+      )}
 
       {vla.training_data && (
         <div>
@@ -1848,6 +2064,7 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
           <>
             {variant.pipeline && <PipelineSection pipeline={variant.pipeline} />}
             <VLAPanel variant={variant} />
+            <EmbodimentComparison variants={model.variants} />
           </>
         ) : isDiffusion ? (
           <>

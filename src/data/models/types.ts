@@ -80,6 +80,34 @@ export interface DiffusionConfig {
   fps?: number;
 }
 
+export interface EmbodimentCamera {
+  name: string;
+  raw: string;
+  tile: string;
+}
+
+// Per-checkpoint interface to one robot/benchmark. Everything here is either a
+// data-side transform or one of the few shape-dependent projection tensors —
+// the backbone it attaches to is identical across embodiments.
+export interface EmbodimentInterface {
+  benchmark: string;
+  robot: string;
+  cameras: EmbodimentCamera[];
+  canvas: string;
+  canvas_w: number;
+  canvas_h: number;
+  tiling: string;
+  action_dim: number;
+  action_layout: string;
+  state_dim: number;
+  state_layout: string;
+  normalization: string;
+  adapter_tensors: string[];
+  adapter_params: string;
+  checkpoint: string;
+  training?: string;
+}
+
 export interface VLAConfig {
   vision_encoder: string;
   vlm_backbone: string;
@@ -93,6 +121,7 @@ export interface VLAConfig {
   action_dim?: number;
   proprioception_dim?: number;
   training_data?: string;
+  embodiment?: EmbodimentInterface;
 }
 
 export interface ModelVariant {

@@ -6,6 +6,8 @@ export type {
   ModelConfig,
   DiffusionConfig,
   VLAConfig,
+  EmbodimentInterface,
+  EmbodimentCamera,
   ModelVariant,
   ModelLink,
   ModelFamily,
@@ -54,9 +56,11 @@ import { minimaxH3 } from "./minimax-h3";
 import { pi0 } from "./pi-0";
 import { pi05 } from "./pi-0-5";
 import { dreamZero } from "./dreamzero";
+import { fastwam } from "./fastwam";
 
 export const models: ModelFamily[] = [
   // 2026
+  fastwam,
   dreamZero,
   deepseekV41Flash,
   minimaxH3,
