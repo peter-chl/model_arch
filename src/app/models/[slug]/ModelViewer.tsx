@@ -1683,7 +1683,7 @@ function EmbodimentComparison({ variants }: { variants: ModelVariant[] }) {
           {[
             ["World encoder", shared.vlm_backbone],
             ["Action head", shared.action_head],
-            ["Latent input", shared.vision_encoder],
+            ["Latent front-end", shared.vae ? `${shared.vae.name} — ${shared.vae.latent_channels} latent channels, ${shared.vae.spatial_compression}× spatial / ${shared.vae.temporal_compression}× temporal` : shared.vision_encoder],
             ["Horizon", `33 observation frames → ${shared.action_chunk_size} actions + 9 video frames (4:1 action-to-frame ratio)`],
           ].map(([label, value]) => (
             <div key={label} className="rounded border border-border bg-background/40 px-3 py-2">
@@ -1725,8 +1725,97 @@ function EmbodimentComparison({ variants }: { variants: ModelVariant[] }) {
         </div>
       </div>
 
+      {shared.vae && (
+        <div className="mb-6">
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted">
+            Step 2 — the VAE turns each canvas into latents, and the DiT into tokens
+          </p>
+          <p className="mb-4 max-w-3xl text-xs leading-relaxed text-muted/80">
+            {shared.vae.note}
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full min-w-[640px] border-collapse text-left">
+              <thead>
+                <tr className="border-b border-border bg-surface">
+                  <th className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                    Stage
+                  </th>
+                  <th className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                    Shape C × T × H × W
+                  </th>
+                  {cols.map((v) => (
+                    <th key={v.id} className="px-3 py-2 text-xs font-semibold text-foreground">
+                      {v.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const vae = shared.vae!;
+                  const F = vae.video_frames;
+                  const Tl = 1 + (F - 1) / vae.temporal_compression;
+                  const p = vae.input_patchify;
+                  const s = vae.spatial_compression;
+                  const dp = vae.dit_patch_spatial;
+                  const shapes = (v: ModelVariant) => {
+                    const { canvas_h: H, canvas_w: W } = v.vla!.embodiment!;
+                    const lh = H / s, lw = W / s;
+                    const th = lh / dp, tw = lw / dp;
+                    return {
+                      rgb: `3 × ${F} × ${H} × ${W}`,
+                      patched: `${3 * p * p} × ${F} × ${H / p} × ${W / p}`,
+                      latent: `${vae.latent_channels} × ${Tl} × ${lh} × ${lw}`,
+                      grid: `${th} × ${tw}`,
+                      perFrame: `${th * tw}`,
+                      total: `${Tl * th * tw}`,
+                    };
+                  };
+                  const rows: [string, string, (x: ReturnType<typeof shapes>) => string][] = [
+                    ["RGB canvas in", "3 × F × H × W", (x) => x.rgb],
+                    [`Space-to-depth ${p}×${p}`, "12 × F × H/2 × W/2", (x) => x.patched],
+                    [`Encoder — ${vae.encoder_downsamples} spatial, ${Math.log2(vae.temporal_compression)} temporal halvings`, `${vae.latent_channels} × Tl × H/${s} × W/${s}`, (x) => x.latent],
+                    [`DiT patch embed ${vae.dit_patch}`, "token grid", (x) => x.grid],
+                    ["Tokens per latent frame", "", (x) => x.perFrame],
+                    ["Video tokens per forward pass", `× ${Tl} latent frames`, (x) => x.total],
+                  ];
+                  return rows.map(([label, generic, get], i) => (
+                    <tr key={label} className={i % 2 ? "bg-surface/40" : ""}>
+                      <td className="border-t border-border px-3 py-2 align-top text-[11px] text-muted">
+                        {label}
+                      </td>
+                      <td className="border-t border-border px-3 py-2 align-top font-mono text-[10px] text-muted/50">
+                        {generic}
+                      </td>
+                      {cols.map((v) => (
+                        <td
+                          key={v.id}
+                          className={`border-t border-border px-3 py-2 align-top font-mono text-[11px] ${
+                            i >= 4 ? "font-bold text-accent" : "text-foreground"
+                          }`}
+                        >
+                          {get(shapes(v))}
+                        </td>
+                      ))}
+                    </tr>
+                  ));
+                })()}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-4 max-w-3xl text-xs leading-relaxed text-muted/80">
+            This is where the two observation sizes stop mattering. The VAE is fully
+            convolutional, so it imposes no fixed input resolution — it just divides
+            {` whatever it is given by ${shared.vae.spatial_compression}× in space and ${shared.vae.temporal_compression}× in time. Both canvases were chosen so that division lands on whole numbers that the DiT's ${shared.vae.dit_patch} patch can halve again.`} What comes out is the same 48-channel latent format in both
+            cases, differing only in the length of the token sequence — and a transformer
+            treats sequence length as data, not architecture. The weights never learn that
+            one robot has two cameras and the other three.
+          </p>
+        </div>
+      )}
+
       <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted">
-        Step 2 — three projections absorb the action and state widths
+        Step 3 — three projections absorb the action and state widths
       </p>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full min-w-[640px] border-collapse text-left">

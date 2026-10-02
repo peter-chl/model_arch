@@ -7,6 +7,7 @@ export type {
   DiffusionConfig,
   VLAConfig,
   EmbodimentInterface,
+  VaeSpec,
   EmbodimentCamera,
   ModelVariant,
   ModelLink,

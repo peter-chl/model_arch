@@ -108,8 +108,24 @@ export interface EmbodimentInterface {
   training?: string;
 }
 
+// Shared latent front-end. Shapes downstream of this are derived from the
+// embodiment's canvas, so the same spec yields different token counts per robot.
+export interface VaeSpec {
+  name: string;
+  latent_channels: number;
+  input_patchify: number;
+  encoder_downsamples: number;
+  spatial_compression: number;
+  temporal_compression: number;
+  video_frames: number;
+  dit_patch: string;
+  dit_patch_spatial: number;
+  note?: string;
+}
+
 export interface VLAConfig {
   vision_encoder: string;
+  vae?: VaeSpec;
   vlm_backbone: string;
   vlm_hidden_size?: number;
   vlm_num_layers?: number;

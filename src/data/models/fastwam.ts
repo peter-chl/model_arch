@@ -4,7 +4,20 @@ import type { ModelFamily, VLAConfig } from "./types";
 // in the repo this is literally one shared configs/model/fastwam.yaml, and the
 // only thing a task config overrides is which data config it points at.
 const SHARED_BACKBONE: Omit<VLAConfig, "embodiment"> = {
-  vision_encoder: "Wan2.2 VAE (frozen) — 48 latent channels",
+  vision_encoder: "Wan2.2 VAE (frozen) — 48 latent channels, 16× spatial / 4× temporal",
+  vae: {
+    name: "Wan2.2 causal 3D VAE (frozen)",
+    latent_channels: 48,
+    input_patchify: 2,
+    encoder_downsamples: 3,
+    spatial_compression: 16,
+    temporal_compression: 4,
+    video_frames: 9,
+    dit_patch: "1 × 2 × 2",
+    dit_patch_spatial: 2,
+    note:
+      "A 2×2 space-to-depth patchify turns the 3-channel RGB canvas into 12 channels before the encoder, which then halves resolution at 3 of its 4 stages (dim_mult [1,2,4,4], no downsample on the last) — 2 × 8 = 16× spatial overall. Two of those stages also halve time (temperal_downsample [false, true, true]), giving 4× temporal. The encoder is causal: it consumes the first frame alone and then groups every 4 frames, so T frames become 1 + (T−1)/4 latent frames.",
+  },
   vlm_backbone:
     "Wan2.2-TI2V-5B video DiT used as a single-pass world encoder — 3072 hidden, 30 layers, 24 heads × 128, FFN 14336, patch 1×2×2; T5 text encoder (4096-dim, 128-token context) frozen",
   vlm_hidden_size: 3072,
