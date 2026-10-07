@@ -222,3 +222,59 @@ npm run dev     # local dev server, basePath applies
 npm run build   # static export to out/ (plus OG generation, if wired in)
 npm run lint
 ```
+
+---
+
+## Appendix — kickoff prompt for a new site
+
+Paste this into the first message of a new session, with `<TOPIC>`, `<USER>` and
+`<REPO>` filled in. It is written to be self-contained, since the new agent starts
+with no memory of this project.
+
+```text
+I'm building a static reference site about <TOPIC>, deployed to GitHub Pages from
+this repo (<USER>/<REPO>). It's a sibling to an existing site of mine,
+<USER>/model_arch, which documents open-weight AI model architectures — same
+deployment approach, different subject and different design.
+
+DEPLOYMENT CONSTRAINTS (non-negotiable — GitHub Pages means no server at runtime):
+- Next.js with output: "export", basePath: "/<REPO>" (must match the repo name
+  exactly, or every JS chunk 404s and the page renders but never hydrates), and
+  images: { unoptimized: true }
+- Deploy via GitHub Actions: npm ci, npm run build, upload-pages-artifact with
+  path: out, then deploy-pages. Needs permissions contents:read, pages:write,
+  id-token:write
+- Any dynamic route needs generateStaticParams or it emits no pages
+- Unavailable: route handlers, middleware, ISR, image optimization, runtime OG
+  generation
+- out/ stays gitignored; it is rebuilt in CI
+
+OPEN — your call, and I want options rather than a copy of the existing site:
+visual design, content model (typed data files vs MDX vs something else), page
+structure, and whether per-page social cards are worth the machinery at all.
+Propose what fits <TOPIC>.
+
+WORKING AGREEMENTS:
+- Push directly to main with `git push origin HEAD:main`. No pull requests unless
+  I ask.
+- Research before writing. If a fact isn't confirmable from a real source, leave
+  it out or flag it as unconfirmed — don't fill gaps with plausible values.
+- For UI work, verify in a real browser before telling me it works. Chromium is at
+  /opt/pw-browsers/chromium. Serve out/ under the basePath, not at the web root,
+  or nothing hydrates and you'll misread it as a component bug.
+- If the container restarts mid-session, compare `git log --oneline -1` against
+  `git log --oneline origin/main -1` before committing — it can resume on an older
+  commit and a push would silently revert work.
+- Outbound network is filtered; several common hosts are blocked. Web search
+  usually works, and cloning a public GitHub repo often beats reading the paper.
+
+FIRST TASK: get a minimal placeholder page deployed end to end and confirm it is
+live at https://<USER>.github.io/<REPO> before building anything real. I need to
+set Settings → Pages → Source to GitHub Actions myself — tell me when you're ready
+for that. Once the pipeline is green, come back with a proposal for structure and
+design and we'll iterate from there.
+```
+
+The deliberate part is the first task: prove the deploy path works on a placeholder
+before any real content exists. Pipeline problems are cheap to diagnose against an
+empty page and expensive to diagnose against a finished one.
