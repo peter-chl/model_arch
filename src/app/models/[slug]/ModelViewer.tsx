@@ -16,6 +16,7 @@ type ComponentType =
   | "qk_norm"
   | "rope"
   | "residual_gate"
+  | "mamba2"
   | "gqa"
   | "mha"
   | "mla"
@@ -50,7 +51,7 @@ interface LayerInfo {
   index: number;
   name: string;
   type: "embedding" | "transformer" | "norm" | "head";
-  variant?: "dense" | "moe";
+  variant?: "dense" | "moe" | "ssm";
   params: number;
   sublayers: SubLayerInfo[];
 }
@@ -159,6 +160,32 @@ const operationDetails: Record<
         type: "text",
         content:
           "γ_q and γ_k are learnable vectors of size [head_dim], shared across all heads — 2 × head_dim parameters per layer, a negligible cost. V is left un-normalized. RoPE is applied after this step.",
+      },
+    ],
+  },
+  mamba2: {
+    title: "Mamba-2 (Selective State-Space Layer)",
+    operation:
+      "A recurrent alternative to attention. Each head carries a fixed-size state that is updated once per token, so compute is linear in sequence length and the per-token memory is constant — there is no KV cache that grows with context. The update is input-dependent (selective): a learned per-token step size Δ decides how much of the old state to keep and how much of the new input to write, which is what lets it remember or forget content rather than decay uniformly. Mamba-2 restricts the state transition to a scalar per head, which makes the recurrence expressible as a structured matrix multiply that runs efficiently on tensor cores. Because it is causal and recurrent it also carries token order, so hybrid models can drop positional encodings from their attention layers.",
+    formula: [
+      { type: "text", content: "One input projection produces the gate, the SSM input, the shared B/C projections, and Δ:" },
+      {
+        type: "latex",
+        content: String.raw`[\mathbf{z},\, \mathbf{x},\, \mathbf{B},\, \mathbf{C},\, oldsymbol{\Delta}] = \mathbf{u} \cdot W_{in}`,
+      },
+      { type: "text", content: "x, B and C pass through a short causal depthwise convolution and SiLU. Then, per head, with scalar a = −exp(A_log):" },
+      {
+        type: "latex",
+        content: String.raw`\mathbf{h}_t = e^{\Delta_t a}\, \mathbf{h}_{t-1} + \Delta_t\, \mathbf{B}_t \mathbf{x}_t^{	op}, \qquad \mathbf{y}_t = \mathbf{C}_t^{	op} \mathbf{h}_t + D\, \mathbf{x}_t`,
+      },
+      {
+        type: "latex",
+        content: String.raw`	ext{out} = 	ext{RMSNorm}igl(\mathbf{y} \odot 	ext{SiLU}(\mathbf{z})igr) \cdot W_{out}`,
+      },
+      {
+        type: "text",
+        content:
+          "h ∈ ℝ^{state × head_dim} per head. B and C are shared by all heads in a group — the same economy GQA applies to keys and values. Δ_t near 0 keeps the state (ignore this token); large Δ_t overwrites it (focus on this token).",
       },
     ],
   },
@@ -797,41 +824,55 @@ function calcDenseFFN(c: ModelConfig): SubLayerInfo {
   };
 }
 
+function isGatedActivation(c: ModelConfig): boolean {
+  // Squared-ReLU FFNs have no gate projection: 2 matrices instead of SwiGLU's 3
+  return !/relu/i.test(c.activation);
+}
+
 function calcMoEFFN(c: ModelConfig, moe: MoEConfig): SubLayerInfo {
   const d = c.hidden_size;
   const eff = moe.expert_intermediate_size;
-  // Pooled MoE: experts run at md instead of d, bracketed by shared pool/unpool projections
+  const mats = isGatedActivation(c) ? 3 : 2;
+  const matsLabel = mats === 3 ? "3 × " : "2 × ";
+  // Pooled (latent) MoE: routed experts run at md instead of d, bracketed by pool/unpool projections
   const md = moe.pooled_hidden_size ?? d;
   const pooled = md !== d;
-  const perExpert = 3 * md * eff;
+  const perExpert = mats * md * eff;
+  const sharedSize = moe.shared_expert_intermediate_size ?? eff;
+  const perShared = mats * d * sharedSize;
   const router = d * moe.num_experts;
+  const routerBias = moe.router_bias ? moe.num_experts : 0;
   const routed = moe.num_experts * perExpert;
-  const shared = moe.shared_experts * perExpert;
-  const pool = pooled ? 2 * d * md + 2 * md : 0;
+  const shared = moe.shared_experts * perShared;
+  const poolNorms = pooled && moe.pooled_norms ? 2 * md : 0;
+  const pool = pooled ? 2 * d * md + poolNorms : 0;
 
   const breakdown: ParamLine[] = [
     { label: "W_router (reads full width)", formula: fmul(d, moe.num_experts), value: router },
   ];
+  if (routerBias) {
+    breakdown.push({ label: "Expert selection bias", formula: `${moe.num_experts}`, value: routerBias });
+  }
   if (pooled) {
-    breakdown.push({ label: "W_pool (pre_expert_proj)", formula: fmul(d, md), value: d * md });
-    breakdown.push({ label: "Pre/post-expert norms", formula: `2 × ${formatNumber(md)}`, value: 2 * md });
+    breakdown.push({ label: "W_pool (to latent)", formula: fmul(d, md), value: d * md });
+    if (poolNorms) breakdown.push({ label: "Pre/post-expert norms", formula: `2 × ${formatNumber(md)}`, value: poolNorms });
   }
   breakdown.push({
     label: `Per expert (×${moe.num_experts})`,
-    formula: `3 × ${fmul(md, eff)} = ${formatNumber(perExpert)} each`,
+    formula: `${matsLabel}${fmul(md, eff)} = ${formatNumber(perExpert)} each`,
     value: routed,
   });
+  if (pooled) {
+    breakdown.push({ label: "W_unpool (from latent)", formula: fmul(md, d), value: md * d });
+  }
   if (moe.shared_experts > 0) {
     breakdown.push({
-      label: `Shared expert (×${moe.shared_experts})`,
-      formula: `3 × ${fmul(md, eff)} = ${formatNumber(perExpert)} each`,
+      label: `Shared expert (×${moe.shared_experts}, full width)`,
+      formula: `${matsLabel}${fmul(d, sharedSize)} = ${formatNumber(perShared)} each`,
       value: shared,
     });
   }
-  if (pooled) {
-    breakdown.push({ label: "W_unpool (post_expert_proj)", formula: fmul(md, d), value: md * d });
-  }
-  const active = router + pool + moe.top_k * perExpert + shared;
+  const active = router + routerBias + pool + moe.top_k * perExpert + shared;
   breakdown.push({
     label: "Active per token",
     formula: `router${pooled ? " + pool/unpool" : ""} + ${moe.top_k} experts + ${moe.shared_experts} shared = ${formatNumber(active)}`,
@@ -839,13 +880,38 @@ function calcMoEFFN(c: ModelConfig, moe: MoEConfig): SubLayerInfo {
   });
 
   return {
-    name: `MoE FFN (${moe.num_experts} experts, top-${moe.top_k}${moe.shared_experts ? `, ${moe.shared_experts} shared` : ""}${pooled ? `, pooled ${d}→${md}` : ""})`,
+    name: `MoE FFN (${moe.num_experts} experts, top-${moe.top_k}${moe.shared_experts ? `, ${moe.shared_experts} shared` : ""}${pooled ? `, latent ${d}→${md}` : ""})`,
     component: "moe",
     dims: pooled
-      ? `router:[${d}→${moe.num_experts}] pool:[${d}→${md}] per expert: gate/up/down [${md}↔${eff}] unpool:[${md}→${d}]`
-      : `router:[${d}→${moe.num_experts}] per expert: gate/up/down [${d}↔${eff}]${moe.shared_experts ? ` shared: [${d}↔${eff}]` : ""}`,
-    params: router + routed + shared + pool,
+      ? `router:[${d}→${moe.num_experts}] pool:[${d}→${md}] per expert: [${md}↔${eff}] unpool:[${md}→${d}]${moe.shared_experts ? ` shared: [${d}↔${sharedSize}]` : ""}`
+      : `router:[${d}→${moe.num_experts}] per expert: [${d}↔${eff}]${moe.shared_experts ? ` shared: [${d}↔${sharedSize}]` : ""}`,
+    params: router + routerBias + routed + shared + pool,
     paramBreakdown: breakdown,
+  };
+}
+
+function calcMamba2(c: ModelConfig): SubLayerInfo {
+  const m = c.mamba!;
+  const d = c.hidden_size;
+  const di = m.num_heads * m.head_dim;
+  const bc = 2 * m.n_groups * m.state_dim;
+  const conv = di + bc;
+  const inProj = d * (2 * di + bc + m.num_heads);
+  const convP = conv * m.conv_kernel + conv;
+  const scalars = 3 * m.num_heads;
+  const outProj = di * d;
+  return {
+    name: `Mamba-2 SSM (${m.num_heads} heads × ${m.head_dim}, state ${m.state_dim}, ${m.n_groups} groups)`,
+    component: "mamba2",
+    dims: `in:[${d}→${2 * di + bc + m.num_heads}] conv1d:[${conv}×${m.conv_kernel}] out:[${di}→${d}]`,
+    params: inProj + convP + scalars + di + outProj,
+    paramBreakdown: [
+      { label: "W_in (z, x, B, C, Δ)", formula: `${formatNumber(d)} × (2·${di} + 2·${m.n_groups}·${m.state_dim} + ${m.num_heads})`, value: inProj },
+      { label: "Causal conv1d (+bias)", formula: `${formatNumber(conv)} × ${m.conv_kernel} + ${formatNumber(conv)}`, value: convP },
+      { label: "A_log, D, Δ bias", formula: `3 × ${m.num_heads}`, value: scalars },
+      { label: "Gated RMSNorm", formula: `${formatNumber(di)}`, value: di },
+      { label: "W_out", formula: fmul(di, d), value: outProj },
+    ],
   };
 }
 
@@ -898,7 +964,24 @@ function generateLayers(c: ModelConfig): LayerInfo[] {
 
   const norm = calcNorm(c);
 
-  for (let i = 0; i < c.num_layers; i++) {
+  if (c.hybrid_pattern) {
+    const LABEL: Record<string, string> = { M: "Mamba-2", "*": "attention", E: "MoE", "-": "MLP" };
+    [...c.hybrid_pattern].forEach((ch, i) => {
+      const mixer =
+        ch === "M" ? calcMamba2(c) : ch === "*" ? calcGQAAttention(c, i) : ch === "E" ? calcMoEFFN(c, c.moe!) : calcDenseFFN(c);
+      const sublayers = [{ ...norm, name: `${c.norm} (pre-norm)` }, mixer];
+      layers.push({
+        index: idx++,
+        name: `Layer ${i} [${LABEL[ch] ?? ch}]`,
+        type: "transformer",
+        variant: ch === "E" ? "moe" : ch === "M" ? "ssm" : "dense",
+        params: sublayers.reduce((sum, sl) => sum + sl.params, 0),
+        sublayers,
+      });
+    });
+  }
+
+  for (let i = 0; i < (c.hybrid_pattern ? 0 : c.num_layers); i++) {
     const pastFirst = c.moe && i >= c.moe.first_moe_layer;
     const matchesInterleave = !c.moe?.interleave_step || (i - (c.moe?.first_moe_layer ?? 0)) % c.moe.interleave_step === 0;
     const isMoE = pastFirst && matchesInterleave;
@@ -1223,6 +1306,7 @@ const TYPE_COLORS: Record<string, string> = {
   head: "border-l-violet-500",
 };
 const MOE_BORDER = "border-l-amber-500";
+const SSM_BORDER = "border-l-teal-500";
 
 function SubLayerRow({ sub }: { sub: SubLayerInfo }) {
   const [detailOpen, setDetailOpen] = useState(false);
@@ -1290,7 +1374,7 @@ function SubLayerRow({ sub }: { sub: SubLayerInfo }) {
 function LayerRow({ layer, cumulative, defaultExpanded }: { layer: LayerInfo; cumulative?: number; defaultExpanded?: boolean }) {
   const [open, setOpen] = useState(defaultExpanded ?? false);
   const [calcOpen, setCalcOpen] = useState(false);
-  const borderColor = layer.variant === "moe" ? MOE_BORDER : TYPE_COLORS[layer.type];
+  const borderColor = layer.variant === "moe" ? MOE_BORDER : layer.variant === "ssm" ? SSM_BORDER : TYPE_COLORS[layer.type];
 
   return (
     <div className={`border-l-2 ${borderColor} bg-surface`}>
@@ -2171,6 +2255,21 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
     ...(config.attn_output_gate ? [["Attn output gate", "σ(x·W_gate), after scaleless o-norm"]] : []),
     ...(config.sandwich_norm ? [["Sandwich norm", "Yes (post-branch norms)"]] : []),
     ...(config.residual_gate ? [["Residual gate", "Learned, α² + β² = 1"]] : []),
+    ...(config.hybrid_pattern ? (() => {
+      const hp = config.hybrid_pattern;
+      const n = (ch: string) => [...hp].filter((x) => x === ch).length;
+      return [
+        ["Layer mix", `${n("M")} Mamba-2 · ${n("E")} MoE · ${n("*")} attention${n("-") ? ` · ${n("-")} MLP` : ""}`],
+        ["Layer pattern", hp],
+      ];
+    })() : []),
+    ...(config.mamba ? [
+      ["Mamba-2 heads", `${config.mamba.num_heads} × ${config.mamba.head_dim}`],
+      ["SSM state dim", config.mamba.state_dim.toString()],
+      ["B/C groups", config.mamba.n_groups.toString()],
+      ["Conv kernel", config.mamba.conv_kernel.toString()],
+    ] : []),
+    ...(config.moe?.shared_expert_intermediate_size ? [["Shared expert FFN", formatNumber(config.moe.shared_expert_intermediate_size)]] : []),
     ...(config.moe?.pooled_hidden_size ? [["MoE pooled width", `${formatNumber(config.hidden_size)} → ${formatNumber(config.moe.pooled_hidden_size)}`]] : []),
     ["Tie embeddings", config.tie_embeddings ? "Yes" : "No"],
     ...(config.mla ? [
@@ -2341,9 +2440,9 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
                 </summary>
                 <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                   {configEntries.map(([label, value]) => (
-                    <div key={label} className="rounded border border-border bg-surface px-3 py-2">
+                    <div key={label} className="min-w-0 rounded border border-border bg-surface px-3 py-2">
                       <p className="text-[10px] uppercase tracking-wider text-muted">{label}</p>
-                      <p className="font-mono text-sm text-foreground">{value}</p>
+                      <p className="font-mono text-sm text-foreground [overflow-wrap:anywhere]">{value}</p>
                     </div>
                   ))}
                 </div>
@@ -2369,7 +2468,13 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
                             `RMSNorm over head_dim (${config.head_dim}) on Q and K only — not V${config.qk_norm_learnable === false ? "; no learnable scale" : ""}`,
                             config.qk_norm_learnable !== false] as const]
                         : []),
-                      ["③", `RoPE${/yarn/i.test(config.pos_encoding) ? " (+ YaRN at inference)" : ""}`,
+                      !/rope/i.test(config.pos_encoding)
+                      ? ["③", "No positional encoding",
+                          config.hybrid_pattern
+                            ? "Q and K are not rotated — the attention layers carry no position at all; token order reaches them through the causal recurrence of the surrounding Mamba-2 layers"
+                            : "Q and K are not rotated — order comes only from the causal mask",
+                          false]
+                      : ["③", `RoPE${/yarn/i.test(config.pos_encoding) ? " (+ YaRN at inference)" : ""}`,
                         config.local_global?.global_nope
                           ? `rotate Q and K by position${config.qk_norm ? ", after QK-Norm" : ""} — skipped entirely on global layers, which are NoPE`
                           : config.qk_norm
@@ -2505,6 +2610,11 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
               {config?.moe && (
                 <span className="flex items-center gap-1.5">
                   <span className="h-3 w-0.5 rounded bg-amber-500" /> Transformer (MoE)
+                </span>
+              )}
+              {config?.hybrid_pattern && (
+                <span className="flex items-center gap-1.5">
+                  <span className="h-3 w-0.5 rounded bg-teal-500" /> Mamba-2 (SSM)
                 </span>
               )}
               <span className="flex items-center gap-1.5">

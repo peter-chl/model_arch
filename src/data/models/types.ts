@@ -8,6 +8,21 @@ export interface MoEConfig {
   // Experts run at this narrower width: a shared projection pools hidden_size
   // down before them and another unpools after. The router still reads full width.
   pooled_hidden_size?: number;
+  // Learned norms around the pooled experts (Muse Spark has them; Nemotron's latent MoE does not)
+  pooled_norms?: boolean;
+  // Width of the shared expert when it differs from the routed experts. Shared experts
+  // always run at full hidden_size, even when routed experts are pooled.
+  shared_expert_intermediate_size?: number;
+  // Per-expert selection bias stored with the weights (e_score_correction_bias)
+  router_bias?: boolean;
+}
+
+export interface MambaConfig {
+  num_heads: number;
+  head_dim: number;
+  state_dim: number;
+  n_groups: number;
+  conv_kernel: number;
 }
 
 // Interleaved sliding-window and global attention. Global layers are every Nth
@@ -69,6 +84,10 @@ export interface ModelConfig {
   sandwich_norm?: { post_attn_learnable: boolean; post_ffn_learnable: boolean };
   // Learned per-channel gate mixing residual and branch, replacing the plain add
   residual_gate?: boolean;
+  // Hybrid stack, one character per layer: M = Mamba-2, * = attention, E = MoE, - = dense MLP.
+  // Each layer holds a single mixer behind its own pre-norm, unlike attention+FFN pairs.
+  hybrid_pattern?: string;
+  mamba?: MambaConfig;
   moe?: MoEConfig;
   mla?: MLAConfig;
   hybrid_attn?: HybridAttentionConfig;

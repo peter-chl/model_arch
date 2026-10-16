@@ -47,6 +47,7 @@ export const museSparkOpen: ModelFamily = {
           expert_intermediate_size: 4096,
           first_moe_layer: 0,
           pooled_hidden_size: 4096,
+          pooled_norms: true,
         },
       },
       vision_encoder: {

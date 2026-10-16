@@ -2,6 +2,7 @@ export type {
   MoEConfig,
   MLAConfig,
   LocalGlobalConfig,
+  MambaConfig,
   HybridAttentionConfig,
   DeltaNetConfig,
   ModelConfig,
@@ -60,10 +61,12 @@ import { pi05 } from "./pi-0-5";
 import { dreamZero } from "./dreamzero";
 import { fastwam } from "./fastwam";
 import { museSparkOpen } from "./muse-spark-open";
+import { nemotron35 } from "./nemotron-3-5";
 
 export const models: ModelFamily[] = [
   // 2026
   museSparkOpen,
+  nemotron35,
   fastwam,
   dreamZero,
   deepseekV41Flash,

@@ -90,7 +90,7 @@ function getStats(model, variant) {
 
   if (c) {
     const paramsSub = variant.activeParams ? `${variant.activeParams} active` : "";
-    const layerSub = c.moe ? "all MoE" : "dense";
+    const layerSub = c.hybrid_pattern ? "Mamba-2 hybrid" : c.moe ? "all MoE" : "dense";
     const thirdStat = c.moe
       ? { label: "Experts", value: String(c.moe.num_experts), sub: `top-${c.moe.top_k} per token` }
       : { label: "KV Heads", value: String(c.num_kv_heads), sub: "GQA" };
