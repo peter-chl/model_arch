@@ -15,6 +15,7 @@ type ComponentType =
   | "layernorm"
   | "qk_norm"
   | "rope"
+  | "residual_gate"
   | "gqa"
   | "mha"
   | "mla"
@@ -158,6 +159,31 @@ const operationDetails: Record<
         type: "text",
         content:
           "γ_q and γ_k are learnable vectors of size [head_dim], shared across all heads — 2 × head_dim parameters per layer, a negligible cost. V is left un-normalized. RoPE is applied after this step.",
+      },
+    ],
+  },
+  residual_gate: {
+    title: "Residual Gate",
+    operation:
+      "Replaces the plain residual add x + f(x) with a learned per-channel mix. Each channel has one parameter w; after a temperature, a sigmoid gives the branch weight β, and the residual weight α is derived from it rather than learned separately. The derivation is chosen so that α² + β² = 1 exactly — the gate rotates between keeping the residual and taking the branch without changing the variance of the sum, which keeps activations from growing with depth.",
+    formula: [
+      {
+        type: "latex",
+        content: String.raw`w' = w / T, \qquad eta = \sigma(w'), \qquad lpha = \sqrt{\sigma(-w')\,(1 + eta)}`,
+      },
+      {
+        type: "latex",
+        content: String.raw`	ext{out} = lpha \odot 	ext{residual} + eta \odot f(	ext{residual})`,
+      },
+      { type: "text", content: "Since σ(−w′) = 1 − β, the two weights always lie on the unit circle:" },
+      {
+        type: "latex",
+        content: String.raw`lpha^2 = (1-eta)(1+eta) = 1 - eta^2 \;\;\Longrightarrow\;\; lpha^2 + eta^2 = 1`,
+      },
+      {
+        type: "text",
+        content:
+          "w has size [hidden_size] — one gate per channel, per branch. In Muse Spark Open T = 0.3, and α² is clamped at 10⁻³ for numerical safety.",
       },
     ],
   },
@@ -590,7 +616,12 @@ function calcNorm(c: ModelConfig): SubLayerInfo {
   };
 }
 
-function calcGQAAttention(c: ModelConfig): SubLayerInfo {
+function isGlobalLayer(c: ModelConfig, i: number): boolean {
+  if (!c.local_global) return true;
+  return (c.num_layers - 1 - i) % c.local_global.global_every === 0;
+}
+
+function calcGQAAttention(c: ModelConfig, layerIdx?: number): SubLayerInfo {
   const { hidden_size: d, num_attention_heads: h, num_kv_heads: kvh, head_dim: dh } = c;
   const q = d * h * dh;
   const k = d * kvh * dh;
@@ -598,15 +629,24 @@ function calcGQAAttention(c: ModelConfig): SubLayerInfo {
   const o = h * dh * d;
   const bias = c.attention_bias ? h * dh + 2 * kvh * dh : 0;
   // QK-Norm lives inside the attention block: after the Q/K projections, before RoPE
-  const qkn = c.qk_norm ? 2 * dh : 0;
+  const qknLearnable = c.qk_norm && c.qk_norm_learnable !== false;
+  const qkn = qknLearnable ? 2 * dh : 0;
+  const gate = c.attn_output_gate ? d * h * dh : 0;
   const isGQA = kvh < h;
-  const base = isGQA ? `GQA Attention (${h}h, ${kvh}kv)` : `MHA (${h} heads)`;
+  let base = isGQA ? `GQA Attention (${h}h, ${kvh}kv)` : `MHA (${h} heads)`;
+  if (c.local_global && layerIdx !== undefined) {
+    base += isGlobalLayer(c, layerIdx)
+      ? ` · global${c.local_global.global_nope ? " NoPE" : ""}`
+      : ` · sliding ${formatNumber(c.local_global.sliding_window)}`;
+  }
+  if (c.qk_norm) base += " + QK-Norm";
+  if (c.attn_output_gate) base += " + output gate";
   return {
-    name: c.qk_norm ? `${base} + QK-Norm` : base,
+    name: base,
     component: isGQA ? "gqa" : "mha",
-    dims: `Q:[${d}→${h * dh}] K:[${d}→${kvh * dh}] V:[${d}→${kvh * dh}] O:[${h * dh}→${d}]`,
-    params: q + k + v + o + bias + qkn,
-    // Ordered as the forward pass runs: project → QK-Norm → RoPE (no params) → attn → W_o
+    dims: `Q:[${d}→${h * dh}] K:[${d}→${kvh * dh}] V:[${d}→${kvh * dh}]${c.attn_output_gate ? ` gate:[${d}→${h * dh}]` : ""} O:[${h * dh}→${d}]`,
+    params: q + k + v + o + bias + qkn + gate,
+    // Ordered as the forward pass runs: project → QK-Norm → RoPE (no params) → attn → output
     paramBreakdown: [
       { label: "① W_q", formula: fmul(d, h * dh), value: q },
       { label: "① W_k", formula: fmul(d, kvh * dh), value: k },
@@ -618,11 +658,16 @@ function calcGQAAttention(c: ModelConfig): SubLayerInfo {
             value: bias,
           }]
         : []),
-      ...(c.qk_norm
+      ...(qknLearnable
         ? [
             { label: "② γ_q (q_norm, over head_dim)", formula: `${dh}`, value: dh },
             { label: "② γ_k (k_norm, over head_dim)", formula: `${dh}`, value: dh },
           ]
+        : c.qk_norm
+        ? [{ label: "② QK-Norm (scaleless)", formula: "no learnable scale", value: 0 }]
+        : []),
+      ...(c.attn_output_gate
+        ? [{ label: "⑤ W_gate (sigmoid output gate)", formula: fmul(d, h * dh), value: gate }]
         : []),
       { label: "⑤ W_o", formula: fmul(h * dh, d), value: o },
     ],
@@ -755,38 +800,76 @@ function calcDenseFFN(c: ModelConfig): SubLayerInfo {
 function calcMoEFFN(c: ModelConfig, moe: MoEConfig): SubLayerInfo {
   const d = c.hidden_size;
   const eff = moe.expert_intermediate_size;
-  const perExpert = 3 * d * eff;
+  // Pooled MoE: experts run at md instead of d, bracketed by shared pool/unpool projections
+  const md = moe.pooled_hidden_size ?? d;
+  const pooled = md !== d;
+  const perExpert = 3 * md * eff;
   const router = d * moe.num_experts;
   const routed = moe.num_experts * perExpert;
   const shared = moe.shared_experts * perExpert;
+  const pool = pooled ? 2 * d * md + 2 * md : 0;
 
   const breakdown: ParamLine[] = [
-    { label: "W_router", formula: fmul(d, moe.num_experts), value: router },
-    {
-      label: `Per expert (×${moe.num_experts})`,
-      formula: `3 × ${fmul(d, eff)} = ${formatNumber(perExpert)} each`,
-      value: routed,
-    },
+    { label: "W_router (reads full width)", formula: fmul(d, moe.num_experts), value: router },
   ];
+  if (pooled) {
+    breakdown.push({ label: "W_pool (pre_expert_proj)", formula: fmul(d, md), value: d * md });
+    breakdown.push({ label: "Pre/post-expert norms", formula: `2 × ${formatNumber(md)}`, value: 2 * md });
+  }
+  breakdown.push({
+    label: `Per expert (×${moe.num_experts})`,
+    formula: `3 × ${fmul(md, eff)} = ${formatNumber(perExpert)} each`,
+    value: routed,
+  });
   if (moe.shared_experts > 0) {
     breakdown.push({
       label: `Shared expert (×${moe.shared_experts})`,
-      formula: `3 × ${fmul(d, eff)} = ${formatNumber(perExpert)} each`,
+      formula: `3 × ${fmul(md, eff)} = ${formatNumber(perExpert)} each`,
       value: shared,
     });
   }
+  if (pooled) {
+    breakdown.push({ label: "W_unpool (post_expert_proj)", formula: fmul(md, d), value: md * d });
+  }
+  const active = router + pool + moe.top_k * perExpert + shared;
   breakdown.push({
     label: "Active per token",
-    formula: `router + ${moe.top_k} experts + ${moe.shared_experts} shared = ${formatNumber(router + moe.top_k * perExpert + shared)}`,
-    value: router + moe.top_k * perExpert + shared,
+    formula: `router${pooled ? " + pool/unpool" : ""} + ${moe.top_k} experts + ${moe.shared_experts} shared = ${formatNumber(active)}`,
+    value: active,
   });
 
   return {
-    name: `MoE FFN (${moe.num_experts} experts, top-${moe.top_k}${moe.shared_experts ? `, ${moe.shared_experts} shared` : ""})`,
+    name: `MoE FFN (${moe.num_experts} experts, top-${moe.top_k}${moe.shared_experts ? `, ${moe.shared_experts} shared` : ""}${pooled ? `, pooled ${d}→${md}` : ""})`,
     component: "moe",
-    dims: `router:[${d}→${moe.num_experts}] per expert: gate/up/down [${d}↔${eff}]${moe.shared_experts ? ` shared: [${d}↔${eff}]` : ""}`,
-    params: router + routed + shared,
+    dims: pooled
+      ? `router:[${d}→${moe.num_experts}] pool:[${d}→${md}] per expert: gate/up/down [${md}↔${eff}] unpool:[${md}→${d}]`
+      : `router:[${d}→${moe.num_experts}] per expert: gate/up/down [${d}↔${eff}]${moe.shared_experts ? ` shared: [${d}↔${eff}]` : ""}`,
+    params: router + routed + shared + pool,
     paramBreakdown: breakdown,
+  };
+}
+
+function postNorm(c: ModelConfig, where: string, learnable: boolean): SubLayerInfo {
+  const d = c.hidden_size;
+  return {
+    name: `${c.norm} (${where}, sandwich${learnable ? "" : ", scaleless"})`,
+    component: "rmsnorm",
+    dims: `[${d}]`,
+    params: learnable ? d : 0,
+    paramBreakdown: learnable
+      ? [{ label: "γ (scale)", formula: `${formatNumber(d)}`, value: d }]
+      : [{ label: "no learnable scale", formula: "0", value: 0 }],
+  };
+}
+
+function residualGate(c: ModelConfig, branch: string): SubLayerInfo {
+  const d = c.hidden_size;
+  return {
+    name: `Residual gate (${branch})`,
+    component: "residual_gate",
+    dims: `[${d}]`,
+    params: d,
+    paramBreakdown: [{ label: "w (per-channel gate)", formula: `${formatNumber(d)}`, value: d }],
   };
 }
 
@@ -837,21 +920,27 @@ function generateLayers(c: ModelConfig): LayerInfo[] {
       attn = isSoftmaxLayer ? calcGQAAttention(c) : calcLightningAttention(c);
       attnLabel = isSoftmaxLayer ? " [softmax]" : " [lightning]";
     } else {
-      attn = calcGQAAttention(c);
+      attn = calcGQAAttention(c, i);
+      if (c.local_global) {
+        attnLabel = isGlobalLayer(c, i)
+          ? ` [global${c.local_global.global_nope ? " · NoPE" : ""}]`
+          : ` [sliding ${formatNumber(c.local_global.sliding_window)}]`;
+      }
     }
     const ffn = isMoE ? calcMoEFFN(c, c.moe!) : calcDenseFFN(c);
+    const sublayers: SubLayerInfo[] = [{ ...norm, name: `${c.norm} (pre-attn)` }, attn];
+    if (c.sandwich_norm) sublayers.push(postNorm(c, "post-attn", c.sandwich_norm.post_attn_learnable));
+    if (c.residual_gate) sublayers.push(residualGate(c, "attn"));
+    sublayers.push({ ...norm, name: `${c.norm} (pre-FFN)` }, ffn);
+    if (c.sandwich_norm) sublayers.push(postNorm(c, "post-FFN", c.sandwich_norm.post_ffn_learnable));
+    if (c.residual_gate) sublayers.push(residualGate(c, "FFN"));
     layers.push({
       index: idx++,
       name: `Layer ${i}${attnLabel}`,
       type: "transformer",
       variant: isMoE ? "moe" : "dense",
-      params: attn.params + ffn.params + norm.params * 2,
-      sublayers: [
-        { ...norm, name: `${c.norm} (pre-attn)` },
-        attn,
-        { ...norm, name: `${c.norm} (pre-FFN)` },
-        ffn,
-      ],
+      params: sublayers.reduce((sum, sl) => sum + sl.params, 0),
+      sublayers,
     });
   }
 
@@ -2071,6 +2160,18 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
     ...(config.rope_theta ? [["RoPE θ base", formatNumber(config.rope_theta)]] : []),
     ...(config.qk_norm !== undefined ? [["QK-Norm", config.qk_norm ? "Yes (RMSNorm over head_dim)" : "No"]] : []),
     ...(config.attention_bias !== undefined ? [["QKV bias", config.attention_bias ? "Yes" : "No"]] : []),
+    ...(config.local_global ? (() => {
+      const g = Array.from({ length: config.num_layers }, (_, i) => i).filter((i) => isGlobalLayer(config, i)).length;
+      return [
+        ["Attention pattern", `${config.num_layers - g} sliding / ${g} global (every ${config.local_global.global_every}th from last)`],
+        ["Sliding window", `${formatNumber(config.local_global.sliding_window)} tokens`],
+        ...(config.local_global.global_nope ? [["Global layers", "NoPE (no positional encoding)"]] : []),
+      ];
+    })() : []),
+    ...(config.attn_output_gate ? [["Attn output gate", "σ(x·W_gate), after scaleless o-norm"]] : []),
+    ...(config.sandwich_norm ? [["Sandwich norm", "Yes (post-branch norms)"]] : []),
+    ...(config.residual_gate ? [["Residual gate", "Learned, α² + β² = 1"]] : []),
+    ...(config.moe?.pooled_hidden_size ? [["MoE pooled width", `${formatNumber(config.hidden_size)} → ${formatNumber(config.moe.pooled_hidden_size)}`]] : []),
     ["Tie embeddings", config.tie_embeddings ? "Yes" : "No"],
     ...(config.mla ? [
       ["KV LoRA rank", config.mla.kv_lora_rank.toString()],
@@ -2264,15 +2365,27 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
                     {[
                       ["①", "Q / K / V projection", `x · W_q, W_k, W_v → split into ${config.num_attention_heads} heads of ${config.head_dim}`, true],
                       ...(config.qk_norm
-                        ? [["②", "QK-Norm", `RMSNorm over head_dim (${config.head_dim}) on Q and K only — not V`, true] as const]
+                        ? [["②", config.qk_norm_learnable === false ? "QK-Norm (scaleless)" : "QK-Norm",
+                            `RMSNorm over head_dim (${config.head_dim}) on Q and K only — not V${config.qk_norm_learnable === false ? "; no learnable scale" : ""}`,
+                            config.qk_norm_learnable !== false] as const]
                         : []),
                       ["③", `RoPE${/yarn/i.test(config.pos_encoding) ? " (+ YaRN at inference)" : ""}`,
-                        config.qk_norm
+                        config.local_global?.global_nope
+                          ? `rotate Q and K by position${config.qk_norm ? ", after QK-Norm" : ""} — skipped entirely on global layers, which are NoPE`
+                          : config.qk_norm
                           ? "rotate Q and K by position — after QK-Norm, never before"
                           : "rotate Q and K by position — V is not rotated",
                         false],
-                      ["④", "Scaled dot-product + softmax", "softmax(QKᵀ / √d_h) · V", false],
-                      ["⑤", "Output projection", "concat heads · W_o → back to hidden_size", true],
+                      ["④", "Scaled dot-product + softmax",
+                        config.local_global
+                          ? `softmax(QKᵀ / √d_h) · V — over a ${formatNumber(config.local_global.sliding_window)}-token window on sliding layers, the full causal prefix on global layers`
+                          : "softmax(QKᵀ / √d_h) · V",
+                        false],
+                      ["⑤", config.attn_output_gate ? "Output norm, gate and projection" : "Output projection",
+                        config.attn_output_gate
+                          ? "scaleless RMSNorm per head → concat → × σ(x · W_gate) elementwise → · W_o back to hidden_size"
+                          : "concat heads · W_o → back to hidden_size",
+                        true],
                     ].map(([num, title, detail, hasParams]) => (
                       <li key={String(num)} className="flex gap-3">
                         <span className="shrink-0 font-mono text-sm text-accent">{String(num)}</span>
@@ -2322,6 +2435,16 @@ export default function ModelViewer({ model }: { model: ModelFamily }) {
                     {operationDetails.rope.operation}
                   </p>
                   <FormulaRenderer blocks={operationDetails.rope.formula} />
+                  {config.local_global?.global_nope && (
+                    <p className="mt-3 text-xs text-muted">
+                      RoPE runs only on this model&apos;s sliding-window layers. The global layers —
+                      every {config.local_global.global_every}th, counted back from the last — use no
+                      positional encoding at all (NoPE). Local layers get precise relative position
+                      inside their window; global layers attend across the whole context purely on
+                      content, and causal masking alone still tells them order. Not rotating them also
+                      sidesteps RoPE&apos;s degradation at lengths far beyond those seen in training.
+                    </p>
+                  )}
                   {config.rope_theta && (
                     <p className="mt-3 text-xs text-muted">
                       This model uses θ_base = {formatNumber(config.rope_theta)}

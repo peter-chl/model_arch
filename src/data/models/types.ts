@@ -5,6 +5,17 @@ export interface MoEConfig {
   expert_intermediate_size: number;
   first_moe_layer: number;
   interleave_step?: number;
+  // Experts run at this narrower width: a shared projection pools hidden_size
+  // down before them and another unpools after. The router still reads full width.
+  pooled_hidden_size?: number;
+}
+
+// Interleaved sliding-window and global attention. Global layers are every Nth
+// layer counted backward from the last, so the final layer is always global.
+export interface LocalGlobalConfig {
+  sliding_window: number;
+  global_every: number;
+  global_nope: boolean;
 }
 
 export interface MLAConfig {
@@ -49,6 +60,15 @@ export interface ModelConfig {
   rope_theta?: number;
   // Pretrained context length, when max_seq_len reflects an extended (e.g. YaRN) window
   native_seq_len?: number;
+  // false => QK-Norm has no learnable scale (0 params)
+  qk_norm_learnable?: boolean;
+  // Scaleless RMSNorm on the attention output, then an elementwise sigmoid(x·W_gate) before W_o
+  attn_output_gate?: boolean;
+  local_global?: LocalGlobalConfig;
+  // Extra norms on each branch output, before the residual add. Either may be scaleless.
+  sandwich_norm?: { post_attn_learnable: boolean; post_ffn_learnable: boolean };
+  // Learned per-channel gate mixing residual and branch, replacing the plain add
+  residual_gate?: boolean;
   moe?: MoEConfig;
   mla?: MLAConfig;
   hybrid_attn?: HybridAttentionConfig;
